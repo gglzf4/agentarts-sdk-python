@@ -45,11 +45,11 @@ class TestTargets:
 class TestOpenClawPlaceholder:
     def test_install_openclaw(self, capsys):
         assert _do_install("openclaw", False, False) == 0
-        assert "\u672a\u5b9e\u73b0" in capsys.readouterr().out
+        assert "not yet implemented" in capsys.readouterr().out
 
     def test_uninstall_openclaw(self, capsys):
         assert _do_uninstall("openclaw", False, False) == 0
-        assert "\u672a\u5b9e\u73b0" in capsys.readouterr().out
+        assert "not yet implemented" in capsys.readouterr().out
 
 
 # ── invalid target ──────────────────────────────────────────────────
@@ -185,22 +185,14 @@ class TestServerCallbacks:
             mock_status.assert_called_once()
 
     def test_start_yes_sets_global(self):
-        with patch(
-            "agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0
-        ):
-            with patch(
-                "agentarts.toolkit.plugins.memory.installer.cli.set_yes"
-            ) as mock_set_yes:
+        with patch("agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0):
+            with patch("agentarts.toolkit.plugins.memory.installer.cli.set_yes") as mock_set_yes:
                 cli.server_start_cmd(yes=True)
                 mock_set_yes.assert_called_once_with(True)
 
     def test_start_without_yes_sets_false(self):
-        with patch(
-            "agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0
-        ):
-            with patch(
-                "agentarts.toolkit.plugins.memory.installer.cli.set_yes"
-            ) as mock_set_yes:
+        with patch("agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0):
+            with patch("agentarts.toolkit.plugins.memory.installer.cli.set_yes") as mock_set_yes:
                 cli.server_start_cmd(yes=False)
                 mock_set_yes.assert_called_once_with(False)
 

@@ -8,10 +8,13 @@ the original argparse-based ``agentarts-memory`` installer.
 from __future__ import annotations
 
 import os
-import sys
 from typing import Annotated
 
 import typer
+
+from rich.console import Console
+
+from agentarts.toolkit.utils.common import echo_error, echo_key_value, echo_success, echo_warning
 
 from .platforms import detect_all, get_platform
 from .server_manager import start as _server_start
@@ -29,6 +32,8 @@ from .utils import (
     select_one,
     set_yes,
 )
+
+console = Console()
 
 VALID_TARGETS = ("hermes", "claude", "codex", "opencode", "openclaw")
 
@@ -53,9 +58,9 @@ def _select_scope(platform_name: str, yes: bool) -> str:
 
 def _check_server_dependency(yes: bool) -> None:
     """Print server dependency hint for claude/codex/opencode."""
-    print("\nNote: This platform requires the local adapter server (127.0.0.1:8719).")
-    print("  Start it with: agentarts memory server start")
-    print("  Configure: HUAWEICLOUD_SDK_MEMORY_API_KEY + AGENTARTS_MEMORY_SPACE_ID")
+    echo_warning("This platform requires the local adapter server (127.0.0.1:8719)")
+    console.print("  Start it with: [cyan]agentarts memory server start[/cyan]")
+    console.print("  Configure: HUAWEICLOUD_SDK_MEMORY_API_KEY + AGENTARTS_MEMORY_SPACE_ID")
 
 
 def _degraded_scan(target: str) -> None:
@@ -78,53 +83,50 @@ def _degraded_scan(target: str) -> None:
     for path in found:
         if os.path.exists(path):
             any_found = True
-            print(f"  Found leftover: {path}")
-            print(f"  Remove manually: rm -rf {path}")
+            console.print(f"  Found leftover: {path}")
+            console.print(f"  Remove manually: [yellow]rm -rf {path}[/yellow]")
 
     if not any_found:
-        print(f"  No leftover {target} files found.")
+        console.print(f"  No leftover {target} files found.")
 
 
 def _do_install(target: str | None, global_scope: bool, yes: bool) -> int:
     """Handle the install flow. Returns process exit code."""
     if target is not None and target not in VALID_TARGETS:
-        print(
-            f"Error: invalid target '{target}'. Choose from: {', '.join(VALID_TARGETS)}",
-            file=sys.stderr,
-        )
+        echo_error(f"Invalid target '{target}'. Choose from: {', '.join(VALID_TARGETS)}")
         return 2
 
     if target == "openclaw":
-        print("openclaw \u672a\u5b9e\u73b0\uff0c\u656c\u8bf7\u671f\u5f85")
+        echo_warning("openclaw not yet implemented")
         return 0
 
     if target is None:
         detected = detect_all(global_scope)
         if not detected:
-            print("\nNo supported platforms detected.")
-            print(
+            console.print("\nNo supported platforms detected.")
+            console.print(
                 "Install Claude Code, Codex, OpenCode, or Hermes Agent, "
-                "then run 'agentarts memory install' again."
+                "then run [cyan]agentarts memory install[/cyan] again."
             )
             return 1
-        print("Detecting platforms...")
+        console.print("Detecting platforms...")
         for _, p in detected:
-            print(f"  \u2713 {p.display}")
+            console.print(f"  [green]\u221a[/green] {p.display}")
         options = [p.display for _, p in detected]
         idx = select_one("\nSelect platform", options, 0)
         target = detected[idx][0]
 
     platform = get_platform(target)
     if platform is None:
-        print(f"Error: unknown platform '{target}'", file=sys.stderr)
+        echo_error(f"Unknown platform '{target}'")
         return 2
 
-    print("\nChecking credentials...")
+    console.print("\nChecking credentials...")
     creds = ensure_credentials(yes)
 
     scope = "global" if global_scope else _select_scope(target, yes)
 
-    print(f"\nInstalling {platform.display} ({scope})...")
+    console.print(f"\nInstalling {platform.display} ({scope})...")
     result = platform.install(scope, creds, yes)
 
     add(
@@ -138,32 +140,29 @@ def _do_install(target: str | None, global_scope: bool, yes: bool) -> int:
         }
     )
 
-    print(f"\n\U0001f389 Install complete: {platform.display} ({scope})")
-    print(f"  Config dir: {result.config_dir}")
+    echo_success(f"Install complete: {platform.display} ({scope})")
+    echo_key_value("Config dir", result.config_dir)
     if result.scripts_dir:
-        print(f"  Scripts:    {result.scripts_dir}")
-    print(f"  Files:      {len(result.files)} deployed")
+        echo_key_value("Scripts", result.scripts_dir)
+    echo_key_value("Files", f"{len(result.files)} deployed")
     if result.config_files:
-        print(f"  Config:     {', '.join(result.config_files)}")
+        echo_key_value("Config", ", ".join(result.config_files))
 
     if target in SERVER_DEPENDENT:
         _check_server_dependency(yes)
 
-    print("\nRestart the platform to activate.")
+    console.print("\nRestart the platform to activate.")
     return 0
 
 
 def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
     """Handle the uninstall flow. Returns process exit code."""
     if target is not None and target not in VALID_TARGETS:
-        print(
-            f"Error: invalid target '{target}'. Choose from: {', '.join(VALID_TARGETS)}",
-            file=sys.stderr,
-        )
+        echo_error(f"Invalid target '{target}'. Choose from: {', '.join(VALID_TARGETS)}")
         return 2
 
     if target == "openclaw":
-        print("openclaw \u672a\u5b9e\u73b0\uff0c\u656c\u8bf7\u671f\u5f85")
+        echo_warning("openclaw not yet implemented")
         return 0
 
     scope = "global" if global_scope else None
@@ -172,16 +171,16 @@ def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
     if target is not None:
         entry = find(target, scope, None)
         if entry is None:
-            print(f"\nNo {target} installation found in manifest.")
-            print("Attempting degraded scan...")
+            console.print(f"\nNo {target} installation found in manifest.")
+            console.print("Attempting degraded scan...")
             _degraded_scan(target)
             return 1
     else:
         all_installs = list_all()
         if not all_installs:
-            print("\nNo installations found.")
+            console.print("\nNo installations found.")
             return 1
-        print("\nInstalled platforms:")
+        console.print("\nInstalled platforms:")
         options = [
             f"{i['platform']} ({i.get('scope', '?')}) \u2014 {i.get('config_dir', '?')}"
             for i in all_installs
@@ -192,17 +191,17 @@ def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
 
     platform = get_platform(target)
     if platform is None:
-        print(f"Error: unknown platform '{target}'", file=sys.stderr)
+        echo_error(f"Unknown platform '{target}'")
         return 2
 
     if not yes and not confirm(
         f"Remove {platform.display} from {entry.get('config_dir', '?')}?",
         default=True,
     ):
-        print("Cancelled.")
+        console.print("[yellow]Cancelled.[/yellow]")
         return 0
 
-    print(f"\nUninstalling {platform.display}...")
+    console.print(f"\nUninstalling {platform.display}...")
     platform.uninstall(entry)
 
     remove(
@@ -211,8 +210,8 @@ def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
         entry.get("config_dir", ""),
     )
 
-    print(f"\n\U00002705 Uninstall complete: {platform.display}")
-    print("Restart the platform to apply changes.")
+    echo_success(f"Uninstall complete: {platform.display}")
+    console.print("Restart the platform to apply changes.")
     return 0
 
 
@@ -224,16 +223,14 @@ def install_cmd(
     global_scope: Annotated[
         bool, typer.Option("--global", help="Install to user-level config.")
     ] = False,
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")] = False,
 ) -> None:
     """Install the AgentArts Memory plugin for a supported AI agent."""
     set_yes(yes)
     try:
         code = _do_install(target, global_scope, yes)
     except EscapeInterrupt:
-        print("\nCancelled.")
+        console.print("\n[yellow]Cancelled.[/yellow]")
         code = 0
     if code:
         raise typer.Exit(code)
@@ -247,16 +244,14 @@ def uninstall_cmd(
     global_scope: Annotated[
         bool, typer.Option("--global", help="Limit to user-level installs.")
     ] = False,
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")] = False,
 ) -> None:
     """Uninstall an AgentArts Memory plugin."""
     set_yes(yes)
     try:
         code = _do_uninstall(target, global_scope, yes)
     except EscapeInterrupt:
-        print("\nCancelled.")
+        console.print("\n[yellow]Cancelled.[/yellow]")
         code = 0
     if code:
         raise typer.Exit(code)
@@ -272,9 +267,7 @@ server_app = typer.Typer(
 
 @server_app.command("start")
 def server_start_cmd(
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")] = False,
 ) -> None:
     """Start the local adapter server."""
     set_yes(yes)

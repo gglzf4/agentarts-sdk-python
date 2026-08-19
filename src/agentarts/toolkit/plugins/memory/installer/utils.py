@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
+from rich.console import Console
+
+console = Console()
+
 _YES: bool = False
 
 
@@ -421,15 +425,15 @@ def remove_if_empty(path: str) -> None:
 
 
 def status_ok(label: str, path: str) -> None:
-    print(f"  \u2713 {label} \u2192 {path}")
+    console.print(f"  [green]\u221a[/green] {label} \u2192 {path}")
 
 
 def status_err(label: str, err: str) -> None:
-    print(f"  \u2717 {label} \u2014 {err}")
+    console.print(f"  [red]\u00d7[/red] {label} \u2014 {err}")
 
 
 def status_updated(label: str, path: str) -> None:
-    print(f"  \u21bb {label} (updated) \u2192 {path}")
+    console.print(f"  [yellow]\u21bb[/yellow] {label} (updated) \u2192 {path}")
 
 
 # ── Interactive prompts ──────────────────────────────────────────────
@@ -517,10 +521,10 @@ def select_one(prompt: str, options: list[str], default_idx: int = 0) -> int:
     """Single-choice select.  Returns *default_idx* when ``--yes``."""
     if _YES or not sys.stdin.isatty():
         return default_idx
-    print(prompt)
+    console.print(prompt)
     for i, opt in enumerate(options):
         marker = "*" if i == default_idx else " "
-        print(f"  {i + 1}) {opt} {marker}")
+        console.print(f"  {i + 1}) {opt} {marker}")
     try:
         raw = _input_with_esc(f"Choice (1-{len(options)}) [{default_idx + 1}]: ").strip()
     except (EOFError, KeyboardInterrupt):
@@ -892,16 +896,16 @@ def interactive_fill(missing: list[str], yes: bool) -> dict[str, str]:
             if validator:
                 ok, result = validator(raw)
                 if not ok:
-                    print(f"  \u2717 {result}")
+                    console.print(f"  [red]\u00d7[/red] {result}")
                     continue
                 raw = result
 
             if not raw and not is_optional:
-                print("  \u2717 Value cannot be empty")
+                console.print("  [red]\u00d7[/red] Value cannot be empty")
                 continue
 
             display = _mask(raw, var)
-            print(f"  \u2713 Configured: {display}")
+            console.print(f"  [green]\u221a[/green] Configured: {display}")
             filled[var] = raw
             break
 
@@ -924,18 +928,18 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
         all_ok = all(v in config and config[v] for v in REQUIRED_VARS)
 
     if not all_ok:
-        print("\n\u26a0\ufe0f  Missing required credentials. Please set:")
+        console.print("\n[yellow]\u26a0[/yellow]  Missing required credentials. Please set:")
         for var in REQUIRED_VARS:
             if not config.get(var):
-                print(f"  {var}")
+                console.print(f"  {var}")
         return config
 
     # Optional: write to shell rc.
     if not yes:
         if confirm("Save configuration to shell rc for persistence?", default=True):
             write_shell_rc(config)
-            print("  \u2713 Configuration saved to shell rc")
-            print("  Run 'source' or restart terminal to apply.")
+            console.print("  [green]\u221a[/green] Configuration saved to shell rc")
+            console.print("  Run 'source' or restart terminal to apply.")
     elif all_ok:
         # In --yes mode, persist if we filled anything interactively (no-op if
         # everything came from env).
