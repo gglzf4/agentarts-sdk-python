@@ -6,6 +6,8 @@ placeholder message and exit normally.
 
 from __future__ import annotations
 
+from agentarts.toolkit.utils.common import echo_warning
+
 from .base import InstallResult, Platform
 
 
@@ -22,8 +24,8 @@ class OpenClawPlatform(Platform):
         return ""
 
     def install(self, scope: str, creds: dict, yes: bool) -> InstallResult:
-        print("openclaw 暂未实现，敬请期待")
+        echo_warning("openclaw not yet implemented")
         return InstallResult(config_dir="", scripts_dir="", files=[], config_files=[])
 
     def uninstall(self, entry: dict) -> None:
-        print("openclaw 暂未实现，敬请期待")
+        echo_warning("openclaw not yet implemented")
