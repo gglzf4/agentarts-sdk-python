@@ -88,6 +88,25 @@ def test_session_cached_per_scope(monkeypatch):
     assert c._client.create_memory_session.call_count == 2
 
 
+def test_session_not_shared_across_users(monkeypatch):
+    """Same scope but different actor_id must create separate sessions."""
+    c = _make_client(monkeypatch)
+    c._client = MagicMock()
+    c._client.create_memory_session.return_value = SimpleNamespace(id="sess-1")
+    sid1 = c._get_or_create_session("proj-a", "codex-user")
+    # same scope, different user -> new session
+    c._client.create_memory_session.return_value = SimpleNamespace(id="sess-2")
+    sid2 = c._get_or_create_session("proj-a", "cc-user")
+    assert sid1 != sid2
+    assert sid1 == "sess-1"
+    assert sid2 == "sess-2"
+    assert c._client.create_memory_session.call_count == 2
+    # same scope + same user still cached
+    sid3 = c._get_or_create_session("proj-a", "codex-user")
+    assert sid3 == sid1
+    assert c._client.create_memory_session.call_count == 2
+
+
 def test_session_uses_actor_and_assistant(monkeypatch):
     c = _make_client(monkeypatch, space_id="sp")
     c._client = MagicMock()

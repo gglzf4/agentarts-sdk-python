@@ -256,7 +256,13 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
           const pendingQuery = sessionPendingAdd.get(sid);
           if (!pendingQuery) return;
           sessionPendingAdd.delete(sid);
-          await addMessages([{ role: "user", content: pendingQuery }], projectScopeId, getUserId());
+          // Include the OpenCode session ID in scope_id so each conversation
+          // gets its own memory session (not shared across conversations).
+          await addMessages(
+            [{ role: "user", content: pendingQuery }],
+            `${projectScopeId}:${sid}`,
+            getUserId(),
+          );
         }
       }
     },

@@ -1,7 +1,7 @@
 """Adapter wrapping agentarts.sdk.memory.MemoryClient.
 
 Provides:
-  - scope_id -> session_id caching (auto create_memory_session on first use)
+  - scope_id:actor_id -> session_id caching (auto create_memory_session on first use)
   - user_id -> actor_id mapping
   - normalized result dicts for the HTTP layer
 """
@@ -68,7 +68,7 @@ class AgentArtsMemoryClient:
         self._sdk = sdk or import_memory_sdk()
         self._client: Any = None
         self._lock = threading.Lock()
-        # scope_id -> session_id cache
+        # scope_id:actor_id -> session_id cache
         self._sessions: dict[str, str] = {}
 
     # ── availability ──
@@ -89,17 +89,27 @@ class AgentArtsMemoryClient:
         return self._client
 
     def _get_or_create_session(self, scope_id: str, actor_id: str) -> str:
-        """Return cached session_id for scope, creating one on first use."""
+        """Return cached session_id for scope+actor, creating one on first use."""
         with self._lock:
-            sid = self._sessions.get(scope_id)
+            cache_key = f"{scope_id}:{actor_id}"
+            sid = self._sessions.get(cache_key)
             if sid:
                 if DEBUG:
-                    logger.debug("[SDK] session cache hit | scope_id=%s, session_id=%s", scope_id, sid)
+                    logger.debug(
+                        "[SDK] session cache hit | scope_id=%s, actor_id=%s, session_id=%s",
+                        scope_id,
+                        actor_id,
+                        sid,
+                    )
                 return sid
             client = self._ensure_client()
             if DEBUG:
-                logger.debug("[SDK] creating session | scope_id=%s, user_id=%s, space_id=%s",
-                           scope_id, actor_id, self._space_id[:8] + "...")
+                logger.debug(
+                    "[SDK] creating session | scope_id=%s, actor_id=%s, space_id=%s",
+                    scope_id,
+                    actor_id,
+                    self._space_id[:8] + "...",
+                )
             session = client.create_memory_session(
                 space_id=self._space_id,
                 actor_id=actor_id,
@@ -108,9 +118,14 @@ class AgentArtsMemoryClient:
             sid = getattr(session, "id", None) or getattr(session, "session_id", "")
             if not sid:
                 raise RuntimeError("create_memory_session returned empty session id")
-            self._sessions[scope_id] = sid
+            self._sessions[cache_key] = sid
             if DEBUG:
-                logger.debug("[SDK] session created | scope_id=%s, session_id=%s", scope_id, sid)
+                logger.debug(
+                    "[SDK] session created | scope_id=%s, actor_id=%s, session_id=%s",
+                    scope_id,
+                    actor_id,
+                    sid,
+                )
             return sid
 
     # ── operations ──
@@ -137,8 +152,13 @@ class AgentArtsMemoryClient:
             for m in messages
         ]
         if DEBUG:
-            logger.debug("[SDK] add_messages | user_id=%s, scope_id=%s, session_id=%s, count=%d",
-                       user_id, scope_id, sid, len(sdk_msgs))
+            logger.debug(
+                "[SDK] add_messages | user_id=%s, scope_id=%s, session_id=%s, count=%d",
+                user_id,
+                scope_id,
+                sid,
+                len(sdk_msgs),
+            )
         resp = client.add_messages(
             space_id=self._space_id,
             session_id=sid,
@@ -158,8 +178,13 @@ class AgentArtsMemoryClient:
         """Semantic search; returns normalized list of {content, score, type}."""
         client = self._ensure_client()
         if DEBUG:
-            logger.debug("[SDK] search_memories | user_id=%s, scope_id=%s, query='%s...', num=%d",
-                       user_id, scope_id, query[:50] if query else "", num)
+            logger.debug(
+                "[SDK] search_memories | user_id=%s, scope_id=%s, query='%s...', num=%d",
+                user_id,
+                scope_id,
+                query[:50] if query else "",
+                num,
+            )
         filters = self._sdk.MemorySearchFilter(
             query=query,
             top_k=num,
@@ -183,8 +208,12 @@ class AgentArtsMemoryClient:
         """List memory records; returns normalized list of {content, type, created_at}."""
         client = self._ensure_client()
         if DEBUG:
-            logger.debug("[SDK] list_memories | user_id=%s, scope_id=%s, limit=%d",
-                       user_id or "default", scope_id or "default", limit)
+            logger.debug(
+                "[SDK] list_memories | user_id=%s, scope_id=%s, limit=%d",
+                user_id or "default",
+                scope_id or "default",
+                limit,
+            )
         resp = client.list_memories(
             space_id=self._space_id,
             limit=limit,
