@@ -123,6 +123,8 @@ def start() -> int:
 
     _write_pid(proc.pid)
     status_ok("Start server", f"PID {proc.pid}")
+    status_ok("PID file", str(_pid_path()))
+    status_ok("Log file", str(log_path))
 
     time.sleep(STARTUP_WAIT_SECONDS)
     if proc.poll() is not None:
