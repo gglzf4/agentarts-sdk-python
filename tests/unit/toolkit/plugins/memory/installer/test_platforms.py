@@ -376,11 +376,11 @@ class TestCodexRoundTrip:
                     assert "${CODEX_PLUGIN_ROOT}" not in cmd
                     assert scripts_dir in cmd
 
-        # config.toml has codex_hooks = true.
+        # config.toml has hooks = true.
         toml_path = os.path.join(expand("~/.codex"), "config.toml")
         assert os.path.isfile(toml_path)
         toml_content = open(toml_path).read()
-        assert "codex_hooks = true" in toml_content
+        assert "hooks = true" in toml_content
         assert "[features]" in toml_content
 
     def test_uninstall_cleans_hooks_toml_and_scripts(self, monkeypatch, tmp_path):
@@ -425,9 +425,9 @@ class TestCodexRoundTrip:
                 total += len(group.get("hooks", []))
         assert total == 6  # not 12
 
-        # config.toml should have one codex_hooks line.
+        # config.toml should have one hooks line.
         toml_content = open(os.path.join(expand("~/.codex"), "config.toml")).read()
-        assert toml_content.count("codex_hooks") == 1
+        assert toml_content.count("hooks = true") == 1
 
     def test_uninstall_preserves_user_hooks_and_other_toml_keys(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -466,7 +466,7 @@ class TestCodexRoundTrip:
         assert os.path.isfile(toml_path)
         toml = open(toml_path).read()
         assert "other_feature = true" in toml
-        assert "codex_hooks" not in toml
+        assert "hooks = true" not in toml
 
     def test_detect_returns_false_when_missing(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)

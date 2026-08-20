@@ -667,51 +667,65 @@ class TestMergeStripHooks:
 
 class TestTomlMerge:
     def test_add_to_empty(self):
-        result = merge_toml_features("", "codex_hooks", "true")
+        result = merge_toml_features("", "hooks", "true")
         assert "[features]" in result
-        assert "codex_hooks = true" in result
+        assert "hooks = true" in result
 
     def test_add_to_existing_no_features(self):
         text = '[other]\nkey = "val"\n'
-        result = merge_toml_features(text, "codex_hooks", "true")
+        result = merge_toml_features(text, "hooks", "true")
         assert "[features]" in result
-        assert "codex_hooks = true" in result
+        assert "hooks = true" in result
         assert "[other]" in result
         assert 'key = "val"' in result
 
     def test_add_to_existing_features(self):
         text = "[features]\nother_key = false\n"
-        result = merge_toml_features(text, "codex_hooks", "true")
+        result = merge_toml_features(text, "hooks", "true")
         assert "other_key = false" in result
-        assert "codex_hooks = true" in result
+        assert "hooks = true" in result
 
     def test_update_existing_key(self):
-        text = "[features]\ncodex_hooks = false\n"
-        result = merge_toml_features(text, "codex_hooks", "true")
-        assert "codex_hooks = true" in result
-        assert "codex_hooks = false" not in result
+        text = "[features]\nhooks = false\n"
+        result = merge_toml_features(text, "hooks", "true")
+        assert "hooks = true" in result
+        assert "hooks = false" not in result
+
+    def test_removes_deprecated_keys(self):
+        text = "[features]\ncodex_hooks = true\nother_key = false\n"
+        result = merge_toml_features(text, "hooks", "true", deprecated_keys=["codex_hooks"])
+        assert "codex_hooks" not in result
+        assert "hooks = true" in result
+        assert "other_key = false" in result
+
+    def test_removes_deprecated_and_updates_existing(self):
+        text = "[features]\ncodex_hooks = true\nhooks = false\n"
+        result = merge_toml_features(text, "hooks", "true", deprecated_keys=["codex_hooks"])
+        assert "codex_hooks" not in result
+        assert "hooks = true" in result
+        assert "hooks = false" not in result
 
     def test_strip_removes_key(self):
-        text = "[features]\ncodex_hooks = true\nother_key = false\n"
-        result = strip_toml_feature(text, "codex_hooks")
-        assert "codex_hooks" not in result
+        text = "[features]\nhooks = true\nother_key = false\n"
+        result = strip_toml_feature(text, "hooks")
+        assert "hooks" not in result
         assert "other_key = false" in result
 
     def test_strip_removes_empty_section(self):
-        text = "[features]\ncodex_hooks = true\n"
-        result = strip_toml_feature(text, "codex_hooks")
+        text = "[features]\nhooks = true\n"
+        result = strip_toml_feature(text, "hooks")
         assert "[features]" not in result
 
     def test_roundtrip(self):
         text = "[other]\nfoo = 1\n"
-        merged = merge_toml_features(text, "codex_hooks", "true")
-        stripped = strip_toml_feature(merged, "codex_hooks")
-        assert "codex_hooks" not in stripped
+        merged = merge_toml_features(text, "hooks", "true")
+        stripped = strip_toml_feature(merged, "hooks")
+        assert "hooks" not in stripped
         assert "foo = 1" in stripped
 
     def test_preserves_other_sections_after(self):
-        text = "[features]\ncodex_hooks = true\n\n[other]\nbar = 2\n"
-        result = strip_toml_feature(text, "codex_hooks")
+        text = "[features]\nhooks = true\n\n[other]\nbar = 2\n"
+        result = strip_toml_feature(text, "hooks")
         assert "[other]" in result
         assert "bar = 2" in result
         assert "[features]" not in result

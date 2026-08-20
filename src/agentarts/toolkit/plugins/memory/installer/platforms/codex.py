@@ -4,7 +4,7 @@ Deploys 13 .mjs hook scripts to ``<config_dir>/agentarts-memory/scripts/``
 and registers 6 hooks in ``<config_dir>/hooks.json`` using absolute paths
 (the ``${CODEX_PLUGIN_ROOT}`` placeholder is replaced).
 
-Also updates ``<config_dir>/config.toml`` to enable ``codex_hooks = true``
+Also updates ``<config_dir>/config.toml`` to enable ``hooks = true``
 under ``[features]`` (text-level merge, no toml library dependency).
 
 Config dir:
@@ -38,7 +38,7 @@ from ..utils import (
 from .base import InstallResult, Platform
 
 CODEX_PLACEHOLDER = "${CODEX_PLUGIN_ROOT}"
-TOML_KEY = "codex_hooks"
+TOML_KEY = "hooks"
 
 
 class CodexPlatform(Platform):
@@ -94,11 +94,13 @@ class CodexPlatform(Platform):
         write_json_atomic(hooks_path, merged)
         status_updated("hooks.json", hooks_path)
 
-        # Phase 3: Update config.toml — enable codex_hooks.
+        # Phase 3: Update config.toml — enable hooks.
         toml_text = ""
         if os.path.isfile(toml_path):
             toml_text = Path(toml_path).read_text(encoding="utf-8")
-        updated_toml = merge_toml_features(toml_text, TOML_KEY, "true")
+        updated_toml = merge_toml_features(
+            toml_text, TOML_KEY, "true", deprecated_keys=["codex_hooks"]
+        )
         Path(toml_path).parent.mkdir(parents=True, exist_ok=True)
         Path(toml_path).write_text(updated_toml, encoding="utf-8")
         status_updated("config.toml", toml_path)
@@ -127,13 +129,13 @@ class CodexPlatform(Platform):
                 os.unlink(hooks_path)
                 status_ok("Removed hooks.json", hooks_path)
 
-        # Phase 2: Strip codex_hooks from config.toml.
+        # Phase 2: Strip hooks from config.toml.
         if toml_path and os.path.isfile(toml_path):
             toml_text = Path(toml_path).read_text(encoding="utf-8")
             updated = strip_toml_feature(toml_text, TOML_KEY)
             if updated.strip():
                 Path(toml_path).write_text(updated, encoding="utf-8")
-                status_ok("Stripped codex_hooks from config.toml", toml_path)
+                status_ok("Stripped hooks from config.toml", toml_path)
             else:
                 os.unlink(toml_path)
                 status_ok("Removed config.toml", toml_path)

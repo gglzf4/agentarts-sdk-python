@@ -207,11 +207,14 @@ def remove_hooks_key(settings: dict, scripts_dir: str) -> dict:
 # ── TOML text-level merge ────────────────────────────────────────────
 
 
-def merge_toml_features(text: str, key: str, value: str) -> str:
+def merge_toml_features(
+    text: str, key: str, value: str, *, deprecated_keys: list[str] | None = None
+) -> str:
     """Ensure ``[features]`` section contains ``key = value``.
 
     Works at the text level (no toml library dependency).  Preserves
-    existing keys and sections.
+    existing keys and sections.  If *deprecated_keys* is provided, those
+    keys are removed from the section first.
     """
     lines = text.splitlines()
 
@@ -231,6 +234,15 @@ def merge_toml_features(text: str, key: str, value: str) -> str:
         # Check if key already exists in the section.
         section_lines = lines[features_start + 1 : features_end]
         key_line = f"{key} = {value}"
+
+        # Remove deprecated keys.
+        if deprecated_keys:
+            section_lines = [
+                line
+                for line in section_lines
+                if not any(line.strip().startswith(f"{dk} ") for dk in deprecated_keys)
+            ]
+
         found = False
         for i, line in enumerate(section_lines):
             if line.strip().startswith(f"{key} "):
