@@ -1,7 +1,7 @@
 """AgentArts Memory Provider for Hermes Agent.
 
 This module implements a Hermes MemoryProvider backed by Huawei Cloud
-AgentArts Memory. It provides cross-session long-term memory persistence
+AgentArts Memory. It provides cross-session cloud memory persistence
 and retrieval (ltm_search / ltm_search_summary tools).
 """
 
@@ -30,11 +30,11 @@ PROVIDER_ASSISTANT_ID = "hermes-agent"
 # ── system_prompt_block text ──
 SYSTEM_PROMPT_BLOCK = (
     "## Long-term Memory (AgentArts Memory)\n"
-    "This session provides cross-session long-term memory via Huawei Cloud AgentArts Memory.\n"
+    "This session provides cross-session cloud memory via Huawei Cloud AgentArts Memory.\n"
     "- Conversation content is automatically written to memory after each turn (non-blocking)\n"
     "- Relevant memories are injected before each LLM call"
     " (user profile / episodic / semantic + history summary)\n"
-    "- Use the ltm_search tool to actively retrieve long-term memories\n"
+    "- Use the ltm_search tool to actively retrieve cloud memories\n"
     "- Use the ltm_search_summary tool to view memory summaries\n"
 )
 
@@ -80,7 +80,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "ltm_search",
         "description": (
-            "Search AgentArts long-term memory and return memory entries relevant to the query"
+            "Search AgentArts memory and return memory entries relevant to the query"
             " (user profile / episodic / semantic + history summary)."
         ),
         "parameters": {
@@ -220,7 +220,7 @@ class AgentArtsMemoryProvider:
         return json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False)
 
     def _ltm_search(self, args: dict[str, Any] | None) -> str:
-        """Execute ltm_search: search AgentArts long-term memories."""
+        """Execute ltm_search: search AgentArts memories."""
         if not self._client:
             return json.dumps({"error": "Memory provider not initialized"}, ensure_ascii=False)
 
@@ -311,7 +311,7 @@ class AgentArtsMemoryProvider:
         return SYSTEM_PROMPT_BLOCK
 
     def prefetch(self, query: str) -> str:
-        """Inject relevant long-term memories before each LLM call."""
+        """Inject relevant emories before each LLM call."""
         if not self._client or not query:
             return ""
         try:

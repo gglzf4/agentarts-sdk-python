@@ -17,8 +17,8 @@
   ],
   "interface": {
     "displayName": "AgentArts Memory",
-    "shortDescription": "Huawei Cloud AgentArts long-term memory for Codex",
-    "longDescription": "AgentArts Memory adds cross-session long-term memory to Codex via Huawei Cloud AgentArts Memory. Conversation prompts are recorded and relevant memories are injected before each turn.",
+    "shortDescription": "Huawei Cloud AgentArts memory for Codex",
+    "longDescription": "AgentArts Memory adds cross-session memory to Codex via Huawei Cloud AgentArts Memory. Conversation prompts are recorded and relevant memories are injected before each turn.",
     "developerName": "AgentArts",
     "category": "Productivity",
     "capabilities": [

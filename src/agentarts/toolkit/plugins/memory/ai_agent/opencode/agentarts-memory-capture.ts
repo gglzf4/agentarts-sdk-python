@@ -170,7 +170,7 @@ const AGENTARTS_INSTRUCTIONS = `<agentarts-memory-instructions>
 You have access to Huawei Cloud AgentArts Memory for persistent cross-session memory.
 
 Relevant memories are automatically injected before each turn. The conversation prompt
-is recorded to long-term memory after each user turn.
+is recorded to cloud memory after each user turn.
 
 Use /recall [query] to search past memories, and /remember [content] to explicitly save.
 Never fabricate memory results — only present what the tools return.
