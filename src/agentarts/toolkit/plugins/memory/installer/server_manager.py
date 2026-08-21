@@ -4,8 +4,8 @@ Provides start, stop, and status operations for the local adapter server
 that serves Claude Code / Codex / OpenCode hook scripts over HTTP on
 127.0.0.1:8719.
 
-Process management uses a PID file at ~/.agentarts-memory/server.pid and
-logs to ~/.agentarts-memory/server.log.
+Process management uses a PID file at ~/.agentarts/server.pid and
+logs to ~/.agentarts/server.log.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from .utils import expand, status_err, status_ok
 # Launch the in-package adapter server as a module (no standalone console script).
 SERVER_MODULE = "agentarts.toolkit.plugins.memory.server.run"
 
-PID_FILE = "~/.agentarts-memory/server.pid"
-LOG_FILE = "~/.agentarts-memory/server.log"
+PID_FILE = "~/.agentarts/server.pid"
+LOG_FILE = "~/.agentarts/server.log"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8719

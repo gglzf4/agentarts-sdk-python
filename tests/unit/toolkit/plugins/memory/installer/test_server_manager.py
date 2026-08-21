@@ -20,7 +20,7 @@ def _set_home(monkeypatch, tmp_path):
 
 
 def _pid_file(tmp_path):
-    return Path(tmp_path) / ".agentarts-memory" / "server.pid"
+    return Path(tmp_path) / ".agentarts" / "server.pid"
 
 
 def _write_pid_file(tmp_path, pid: int):

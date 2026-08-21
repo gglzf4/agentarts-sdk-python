@@ -662,7 +662,7 @@ def opencode_files() -> dict[str, str]:
 # ── Manifest (installed.json) ──────────────────────────────────────
 
 
-MANIFEST_DIR = "~/.agentarts-memory"
+MANIFEST_DIR = "~/.agentarts"
 MANIFEST_FILE = "installed.json"
 
 
