@@ -1,7 +1,8 @@
 """Hermes Agent platform adapter.
 
 Deploys the hermes memory provider (provider.py, plugin.yaml, __init__.py)
-to ``~/.hermes/hermes-agent/plugins/memory/agentarts/``.
+to ``~/.hermes/hermes-agent/plugins/memory/agentarts/`` and
+``~/.hermes/plugins/agentarts/``.
 
 Credentials:
   - API Key → ``~/.hermes/.env`` (deduped by key)
@@ -36,6 +37,8 @@ from .base import InstallResult, Platform
 
 HERMES_HOME = "~/.hermes"
 PLUGIN_DIR = "~/.hermes/hermes-agent/plugins/memory/agentarts"
+PLUGIN_DIR_NEW = "~/.hermes/plugins/agentarts"
+PLUGIN_DIRS = [PLUGIN_DIR, PLUGIN_DIR_NEW]
 ENV_FILE = "~/.hermes/.env"
 CONFIG_FILE = "~/.hermes/agentarts.json"
 CONFIG_YAML = "~/.hermes/config.yaml"
@@ -61,12 +64,14 @@ class HermesPlatform(Platform):
         # Phase 1: Deploy plugin files.
         src_files = hermes_files()
         deployed: list[str] = []
-        for src in src_files:
-            dst = os.path.join(plugin_dir, os.path.basename(src))
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
-            deployed.append(dst)
-            status_ok(f"Deploy {os.path.basename(src)}", dst)
+        for pdir in PLUGIN_DIRS:
+            target_dir = expand(pdir)
+            for src in src_files:
+                dst = os.path.join(target_dir, os.path.basename(src))
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                deployed.append(dst)
+                status_ok(f"Deploy {os.path.basename(src)}", dst)
 
         # Phase 2: Write .env (API key).
         api_key = creds.get(ENV_API_KEY, "")
@@ -107,20 +112,20 @@ class HermesPlatform(Platform):
         config_path = expand(CONFIG_FILE)
 
         # Phase 1: Remove plugin directory.
-        p = Path(plugin_dir)
-        if p.exists():
-            shutil.rmtree(p)
-            status_ok("Remove plugin dir", plugin_dir)
-
-            # Clean up empty parent directories up to ~/.hermes.
-            parent = p.parent
-            hermes_home = expand(HERMES_HOME)
-            while parent != Path(hermes_home) and parent.exists():
-                try:
-                    parent.rmdir()
-                    parent = parent.parent
-                except OSError:
-                    break
+        for pdir in PLUGIN_DIRS:
+            p = Path(expand(pdir))
+            if p.exists():
+                shutil.rmtree(p)
+                status_ok("Remove plugin dir", str(p))
+                # Clean up empty parent directories up to ~/.hermes.
+                parent = p.parent
+                hermes_home = expand(HERMES_HOME)
+                while parent != Path(hermes_home) and parent.exists():
+                    try:
+                        parent.rmdir()
+                        parent = parent.parent
+                    except OSError:
+                        break
 
         # Phase 2: Strip API key from .env.
         strip_env_keys(env_path, [ENV_API_KEY])

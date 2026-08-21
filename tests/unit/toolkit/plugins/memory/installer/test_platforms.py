@@ -80,7 +80,15 @@ class TestHermesRoundTrip:
         assert "provider.py" in files
         assert "plugin.yaml" in files
         assert "__init__.py" in files
-        assert len(result.files) == 3
+        assert len(result.files) == 6
+
+        # Also deployed to the new plugin directory.
+        new_plugin_dir = expand("~/.hermes/plugins/agentarts")
+        assert os.path.isdir(new_plugin_dir)
+        new_files = os.listdir(new_plugin_dir)
+        assert "provider.py" in new_files
+        assert "plugin.yaml" in new_files
+        assert "__init__.py" in new_files
 
         # .env written.
         env_path = expand("~/.hermes/.env")
@@ -127,6 +135,9 @@ class TestHermesRoundTrip:
 
         # Plugin dir gone.
         assert not os.path.exists(plugin_dir)
+        # New plugin dir also gone.
+        new_plugin_dir = expand("~/.hermes/plugins/agentarts")
+        assert not os.path.exists(new_plugin_dir)
         # .env gone (we only had the API key, so file removed).
         assert not os.path.exists(expand("~/.hermes/.env"))
         # agentarts.json gone.
@@ -151,6 +162,10 @@ class TestHermesRoundTrip:
         files = os.listdir(plugin_dir)
         # Should still be exactly 3 files, not duplicated.
         assert len([f for f in files if f.endswith(".py") or f.endswith(".yaml")]) == 3
+        # New plugin dir also has exactly 3 files.
+        new_plugin_dir = expand("~/.hermes/plugins/agentarts")
+        new_files = os.listdir(new_plugin_dir)
+        assert len([f for f in new_files if f.endswith(".py") or f.endswith(".yaml")]) == 3
 
         # .env should have one API key line, not two.
         env_content = open(expand("~/.hermes/.env")).read()
