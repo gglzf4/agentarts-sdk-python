@@ -351,6 +351,150 @@ def set_yaml_key(path: str, section: str, key: str, value: str) -> None:
 
 
 # ── .env file (dedup by key) ─────────────────────────────────────────
+# ── MCP server config helpers ──────────────────────────────────────
+
+
+def merge_mcp_servers(settings: dict, name: str, command: str, args: list[str], env: dict[str, str]) -> dict:
+    """Merge an MCP server entry into settings dict (for Claude Code settings.json).
+
+    Idempotent: strips existing entry with same name first.
+    """
+    result = dict(settings)
+    mcp_servers = dict(result.get("mcpServers", {}))
+    mcp_servers[name] = {"command": command, "args": args, "env": dict(env)}
+    result["mcpServers"] = mcp_servers
+    return result
+
+
+def strip_mcp_servers(settings: dict, name: str) -> dict:
+    """Remove an MCP server entry from settings dict.
+
+    Returns settings without the named server. Removes mcpServers key if empty.
+    """
+    result = dict(settings)
+    mcp_servers = dict(result.get("mcpServers", {}))
+    mcp_servers.pop(name, None)
+    if mcp_servers:
+        result["mcpServers"] = mcp_servers
+    else:
+        result.pop("mcpServers", None)
+    return result
+
+
+def merge_toml_mcp_server(text: str, name: str, command: str, args: list[str], env: dict[str, str]) -> str:
+    """Ensure config.toml contains [mcp_servers.{name}] section.
+
+    Works at the text level (no toml library). Idempotent: removes existing
+    section with same name first, then appends.
+    """
+    # First strip any existing section with this name.
+    text = strip_toml_mcp_server(text, name)
+
+    lines: list[str] = []
+    # Format args as TOML array.
+    args_str = ", ".join(f'"{a}"' for a in args)
+    lines.append(f"[mcp_servers.{name}]")
+    lines.append(f'command = "{command}"')
+    lines.append(f"args = [{args_str}]")
+    if env:
+        lines.append("")
+        for k, v in env.items():
+            lines.append(f'{k} = "{v}"')
+    lines.append("")
+
+    result = text.rstrip()
+    if result:
+        result += "\n"
+    result += "\n".join(lines) + "\n"
+    return result
+
+
+def strip_toml_mcp_server(text: str, name: str) -> str:
+    """Remove [mcp_servers.{name}] section from TOML text.
+
+    Handles both [mcp_servers.name] and [mcp_servers.name.env] sub-sections.
+    """
+    section_header = f"[mcp_servers.{name}"
+    lines = text.splitlines()
+    result: list[str] = []
+    in_section = False
+
+    for line in lines:
+        stripped = line.strip()
+        # Check if this line starts a new section.
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if stripped.startswith(section_header):
+                in_section = True
+                continue
+            else:
+                in_section = False
+        if in_section:
+            continue
+        result.append(line)
+
+    text_result = "\n".join(result)
+    # Clean up trailing blank lines.
+    text_result = text_result.rstrip() + "\n" if text_result.strip() else ""
+    return text_result
+
+
+def merge_opencode_mcp(config: dict, name: str, command: list[str], env: dict[str, str]) -> dict:
+    """Merge an MCP server entry into opencode.json config dict.
+
+    Idempotent: strips existing entry with same name first.
+    """
+    result = dict(config)
+    mcp = dict(result.get("mcp", {}))
+    mcp[name] = {
+        "type": "local",
+        "command": command,
+        "environment": dict(env),
+    }
+    result["mcp"] = mcp
+    return result
+
+
+def strip_opencode_mcp(config: dict, name: str) -> dict:
+    """Remove an MCP server entry from opencode.json config.
+
+    Returns config without the named server. Removes mcp key if empty.
+    """
+    result = dict(config)
+    mcp = dict(result.get("mcp", {}))
+    mcp.pop(name, None)
+    if mcp:
+        result["mcp"] = mcp
+    else:
+        result.pop("mcp", None)
+    return result
+
+
+# ── MCP server config constants ─────────────────────────────────────
+
+MCP_SERVER_NAME = "agentarts_memory"
+MCP_SERVER_MODULE = "agentarts.toolkit.plugins.memory.mcp.server"
+MCP_SERVER_COMMAND = "python3"
+MCP_SERVER_ARGS = ["-m", MCP_SERVER_MODULE]
+
+
+def build_mcp_env(creds: dict, platform_name: str = "") -> dict[str, str]:
+    """Build the env dict for MCP server config from credentials.
+
+    Includes ``AGENTARTS_MEMORY_PLATFORM`` so the MCP server subprocess can
+    resolve the correct default user_id (e.g. opencode-user, cc-user).
+    """
+    env: dict[str, str] = {}
+    if platform_name:
+        env["AGENTARTS_MEMORY_PLATFORM"] = platform_name
+    if creds.get(ENV_API_KEY):
+        env[ENV_API_KEY] = creds[ENV_API_KEY]
+    if creds.get(ENV_SPACE_ID):
+        env[ENV_SPACE_ID] = creds[ENV_SPACE_ID]
+    if creds.get(ENV_REGION):
+        env[ENV_REGION] = creds[ENV_REGION]
+    return env
+ 
+ 
 
 
 def write_env_file(path: str, entries: dict[str, str]) -> None:
@@ -557,18 +701,8 @@ def select_one(prompt: str, options: list[str], default_idx: int = 0) -> int:
 
 CODE_AGENT_SCRIPTS: list[str] = [
     "_shared.mjs",
-    "session-start.mjs",
-    "session-end.mjs",
     "prompt-submit.mjs",
-    "pre-tool-use.mjs",
-    "post-tool-use.mjs",
-    "post-tool-failure.mjs",
     "pre-compact.mjs",
-    "subagent-start.mjs",
-    "subagent-stop.mjs",
-    "notification.mjs",
-    "task-completed.mjs",
-    "stop.mjs",
 ]
 
 

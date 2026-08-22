@@ -1,9 +1,8 @@
-"""Tests for the agentarts memory install/uninstall/server CLI callbacks.
+"""Tests for the agentarts memory install/uninstall CLI callbacks.
 
-The original installer exposed an argparse ``main``; it now ships Typer
-callbacks (``install_cmd``/``uninstall_cmd``/``server_app``) registered onto
-``agentarts memory``.  These tests exercise the business logic
-(``_do_install``/``_do_uninstall``) and the server dispatch directly.
+The installer ships Typer callbacks (``install_cmd``/``uninstall_cmd``)
+registered onto ``agentarts memory``.  These tests exercise the business
+logic (``_do_install``/``_do_uninstall``).
 """
 
 import os
@@ -156,45 +155,8 @@ class TestEndToEndClaude:
         _set_home_and_creds(monkeypatch, tmp_path)
         _do_install("claude", True, True)
         out = capsys.readouterr().out
-        assert "127.0.0.1:8719" in out
-
-
-# ── server subcommand dispatch ──────────────────────────────────────
-
-
-class TestServerCallbacks:
-    def test_start_dispatches(self):
-        with patch(
-            "agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0
-        ) as mock_start:
-            cli.server_start_cmd(yes=True)
-            mock_start.assert_called_once()
-
-    def test_stop_dispatches(self):
-        with patch(
-            "agentarts.toolkit.plugins.memory.installer.cli._server_stop", return_value=0
-        ) as mock_stop:
-            cli.server_stop_cmd()
-            mock_stop.assert_called_once()
-
-    def test_status_dispatches(self):
-        with patch(
-            "agentarts.toolkit.plugins.memory.installer.cli._server_status", return_value=0
-        ) as mock_status:
-            cli.server_status_cmd()
-            mock_status.assert_called_once()
-
-    def test_start_yes_sets_global(self):
-        with patch("agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0):
-            with patch("agentarts.toolkit.plugins.memory.installer.cli.set_yes") as mock_set_yes:
-                cli.server_start_cmd(yes=True)
-                mock_set_yes.assert_called_once_with(True)
-
-    def test_start_without_yes_sets_false(self):
-        with patch("agentarts.toolkit.plugins.memory.installer.cli._server_start", return_value=0):
-            with patch("agentarts.toolkit.plugins.memory.installer.cli.set_yes") as mock_set_yes:
-                cli.server_start_cmd(yes=False)
-                mock_set_yes.assert_called_once_with(False)
+        # Server hint removed; MCP config is written by installer instead.
+        assert "Restart" in out
 
 
 # ── escape interrupt ───────────────────────────────────────────────

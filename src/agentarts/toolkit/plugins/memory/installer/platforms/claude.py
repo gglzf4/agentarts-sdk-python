@@ -1,7 +1,7 @@
 """Claude Code platform adapter.
 
-Deploys 13 .mjs hook scripts to ``<config_dir>/agentarts-memory/scripts/``
-and registers 12 hooks in ``<config_dir>/settings.json`` using absolute
+Deploys 3 .mjs hook scripts to ``<config_dir>/agentarts-memory/scripts/``
+and registers 2 hooks in ``<config_dir>/settings.json`` using absolute
 paths (the ``${CLAUDE_PLUGIN_ROOT}`` placeholder is replaced).
 
 Config dir:
@@ -18,16 +18,22 @@ from pathlib import Path
 from typing import cast
 
 from ..utils import (
+    MCP_SERVER_ARGS,
+    MCP_SERVER_COMMAND,
+    MCP_SERVER_NAME,
+    build_mcp_env,
     claude_hooks_template,
     code_agent_scripts,
     expand,
     merge_hooks,
+    merge_mcp_servers,
     read_json,
     remove_hooks_key,
     remove_if_empty,
     status_ok,
     status_updated,
     strip_json5,
+    strip_mcp_servers,
     write_json_atomic,
 )
 from .base import InstallResult, Platform
@@ -85,6 +91,14 @@ class ClaudePlatform(Platform):
         # Phase 3: Merge into settings.json.
         settings = read_json(settings_path)
         merged = merge_hooks(settings, hooks_template, scripts_dir)
+        # Phase 4: Merge MCP server config.
+        merged = merge_mcp_servers(
+            merged,
+            MCP_SERVER_NAME,
+            MCP_SERVER_COMMAND,
+            MCP_SERVER_ARGS,
+            build_mcp_env(creds, "claude-code"),
+        )
         write_json_atomic(settings_path, merged)
         status_updated("settings.json", settings_path)
 
@@ -103,6 +117,8 @@ class ClaudePlatform(Platform):
         # Phase 1: Strip our hooks from settings.json.
         if settings_path and os.path.isfile(settings_path):
             settings = read_json(settings_path)
+            # Also strip MCP server config.
+            settings = strip_mcp_servers(settings, MCP_SERVER_NAME)
             cleaned = remove_hooks_key(settings, scripts_dir)
             if cleaned and list(cleaned.keys()):
                 # Preserve other settings.

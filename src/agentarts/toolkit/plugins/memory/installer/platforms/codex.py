@@ -1,7 +1,7 @@
 """Codex platform adapter.
 
-Deploys 13 .mjs hook scripts to ``<config_dir>/agentarts-memory/scripts/``
-and registers 6 hooks in ``<config_dir>/hooks.json`` using absolute paths
+Deploys 3 .mjs hook scripts to ``<config_dir>/agentarts-memory/scripts/``
+and registers 2 hooks in ``<config_dir>/hooks.json`` using absolute paths
 (the ``${CODEX_PLUGIN_ROOT}`` placeholder is replaced).
 
 Also updates ``<config_dir>/config.toml`` to enable ``hooks = true``
@@ -21,10 +21,15 @@ from pathlib import Path
 from typing import cast
 
 from ..utils import (
+    MCP_SERVER_ARGS,
+    MCP_SERVER_COMMAND,
+    MCP_SERVER_NAME,
+    build_mcp_env,
     code_agent_scripts,
     codex_hooks_template,
     expand,
     merge_hooks,
+    merge_toml_mcp_server,
     merge_toml_features,
     read_json,
     remove_hooks_key,
@@ -32,6 +37,7 @@ from ..utils import (
     status_ok,
     status_updated,
     strip_json5,
+    strip_toml_mcp_server,
     strip_toml_feature,
     write_json_atomic,
 )
@@ -105,6 +111,18 @@ class CodexPlatform(Platform):
         Path(toml_path).write_text(updated_toml, encoding="utf-8")
         status_updated("config.toml", toml_path)
 
+        # Phase 4: Merge MCP server config into config.toml.
+        toml_text = Path(toml_path).read_text(encoding="utf-8")
+        updated_toml = merge_toml_mcp_server(
+            toml_text,
+            MCP_SERVER_NAME,
+            MCP_SERVER_COMMAND,
+            MCP_SERVER_ARGS,
+            build_mcp_env(creds, "codex"),
+        )
+        Path(toml_path).write_text(updated_toml, encoding="utf-8")
+        status_updated("config.toml (MCP)", toml_path)
+
         return InstallResult(
             config_dir=config_dir,
             scripts_dir=scripts_dir,
@@ -132,10 +150,12 @@ class CodexPlatform(Platform):
         # Phase 2: Strip hooks from config.toml.
         if toml_path and os.path.isfile(toml_path):
             toml_text = Path(toml_path).read_text(encoding="utf-8")
+            # Strip MCP server config first, then hooks feature.
+            toml_text = strip_toml_mcp_server(toml_text, MCP_SERVER_NAME)
             updated = strip_toml_feature(toml_text, TOML_KEY)
             if updated.strip():
                 Path(toml_path).write_text(updated, encoding="utf-8")
-                status_ok("Stripped hooks from config.toml", toml_path)
+                status_ok("Stripped hooks and MCP from config.toml", toml_path)
             else:
                 os.unlink(toml_path)
                 status_ok("Removed config.toml", toml_path)

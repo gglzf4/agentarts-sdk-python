@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "AGENTARTS_MEMORY_PLATFORM=codex node \"${CODEX_PLUGIN_ROOT}/scripts/session-start.mjs\"",
-            "statusMessage": "agentarts-memory: checking server health"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -22,27 +11,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write|Read|Glob|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "AGENTARTS_MEMORY_PLATFORM=codex node \"${CODEX_PLUGIN_ROOT}/scripts/pre-tool-use.mjs\""
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "AGENTARTS_MEMORY_PLATFORM=codex node \"${CODEX_PLUGIN_ROOT}/scripts/post-tool-use.mjs\""
-          }
-        ]
-      }
-    ],
     "PreCompact": [
       {
         "hooks": [
@@ -50,16 +18,6 @@
             "type": "command",
             "command": "AGENTARTS_MEMORY_PLATFORM=codex node \"${CODEX_PLUGIN_ROOT}/scripts/pre-compact.mjs\"",
             "statusMessage": "agentarts-memory: injecting context before compaction"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "AGENTARTS_MEMORY_PLATFORM=codex node \"${CODEX_PLUGIN_ROOT}/scripts/stop.mjs\""
           }
         ]
       }

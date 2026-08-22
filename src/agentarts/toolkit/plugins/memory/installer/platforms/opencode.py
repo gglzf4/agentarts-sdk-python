@@ -18,11 +18,17 @@ import os
 import shutil
 
 from ..utils import (
+    MCP_SERVER_ARGS,
+    MCP_SERVER_COMMAND,
+    MCP_SERVER_NAME,
+    build_mcp_env,
     expand,
+    merge_opencode_mcp,
     opencode_files,
     read_json,
     remove_if_empty,
     status_ok,
+    strip_opencode_mcp,
     status_updated,
     write_json_atomic,
 )
@@ -72,6 +78,13 @@ class OpenCodePlatform(Platform):
         plugin_list.append(PLUGIN_ENTRY)
 
         config["plugin"] = plugin_list
+        # Phase 3: Merge MCP server config.
+        config = merge_opencode_mcp(
+            config,
+            MCP_SERVER_NAME,
+            [MCP_SERVER_COMMAND] + MCP_SERVER_ARGS,
+            build_mcp_env(creds, "opencode"),
+        )
         write_json_atomic(json_path, config)
         status_updated("opencode.json", json_path)
 
@@ -92,6 +105,7 @@ class OpenCodePlatform(Platform):
             plugin_list = config.get("plugin", [])
             plugin_list = [p for p in plugin_list if p != PLUGIN_ENTRY]
 
+            config = strip_opencode_mcp(config, MCP_SERVER_NAME)
             if plugin_list:
                 config["plugin"] = plugin_list
                 write_json_atomic(json_path, config)

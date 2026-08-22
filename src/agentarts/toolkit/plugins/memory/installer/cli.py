@@ -17,9 +17,6 @@ from rich.console import Console
 from agentarts.toolkit.utils.common import echo_error, echo_key_value, echo_success, echo_warning
 
 from .platforms import detect_all, get_platform
-from .server_manager import start as _server_start
-from .server_manager import status as _server_status
-from .server_manager import stop as _server_stop
 from .utils import (
     EscapeInterrupt,
     add,
@@ -32,14 +29,9 @@ from .utils import (
     select_one,
     set_yes,
 )
-
 console = Console()
 
 VALID_TARGETS = ("hermes", "claude", "codex", "opencode", "openclaw")
-
-# Platforms that depend on the local adapter server.
-SERVER_DEPENDENT = {"claude", "codex", "opencode"}
-
 
 def _select_scope(platform_name: str, yes: bool) -> str:
     """Determine install scope (project or global)."""
@@ -54,13 +46,6 @@ def _select_scope(platform_name: str, yes: bool) -> str:
         0,
     )
     return "project" if idx == 0 else "global"
-
-
-def _check_server_dependency(yes: bool) -> None:
-    """Print server dependency hint for claude/codex/opencode."""
-    echo_warning("This platform requires the local adapter server (127.0.0.1:8719)")
-    console.print("  Start it with: [cyan]agentarts memory server start[/cyan]")
-    console.print("  Configure: HUAWEICLOUD_SDK_MEMORY_API_KEY + AGENTARTS_MEMORY_SPACE_ID")
 
 
 def _degraded_scan(target: str) -> None:
@@ -147,10 +132,6 @@ def _do_install(target: str | None, global_scope: bool, yes: bool) -> int:
     echo_key_value("Files", f"{len(result.files)} deployed")
     if result.config_files:
         echo_key_value("Config", ", ".join(result.config_files))
-
-    if target in SERVER_DEPENDENT:
-        _check_server_dependency(yes)
-
     console.print("\nRestart the platform to activate.")
     return 0
 
@@ -253,40 +234,5 @@ def uninstall_cmd(
     except EscapeInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
         code = 0
-    if code:
-        raise typer.Exit(code)
-
-
-server_app = typer.Typer(
-    name="server",
-    help="Manage the local AgentArts Memory adapter server (127.0.0.1:8719).",
-    add_completion=False,
-    no_args_is_help=True,
-)
-
-
-@server_app.command("start")
-def server_start_cmd(
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Auto-confirm all prompts.")] = False,
-) -> None:
-    """Start the local adapter server."""
-    set_yes(yes)
-    code = _server_start()
-    if code:
-        raise typer.Exit(code)
-
-
-@server_app.command("stop")
-def server_stop_cmd() -> None:
-    """Stop the local adapter server."""
-    code = _server_stop()
-    if code:
-        raise typer.Exit(code)
-
-
-@server_app.command("status")
-def server_status_cmd() -> None:
-    """Check the local adapter server status."""
-    code = _server_status()
     if code:
         raise typer.Exit(code)

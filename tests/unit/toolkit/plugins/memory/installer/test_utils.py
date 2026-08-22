@@ -89,9 +89,9 @@ class TestHermesFiles:
 
 
 class TestCodeAgentScripts:
-    def test_returns_thirteen(self):
+    def test_returns_three(self):
         scripts = code_agent_scripts()
-        assert len(scripts) == 13
+        assert len(scripts) == 3
 
     def test_scripts_exist(self):
         for s in code_agent_scripts():
@@ -105,18 +105,8 @@ class TestCodeAgentScripts:
     def test_contains_all_expected(self):
         expected = [
             "_shared.mjs",
-            "session-start.mjs",
-            "session-end.mjs",
             "prompt-submit.mjs",
-            "pre-tool-use.mjs",
-            "post-tool-use.mjs",
-            "post-tool-failure.mjs",
             "pre-compact.mjs",
-            "subagent-start.mjs",
-            "subagent-stop.mjs",
-            "notification.mjs",
-            "task-completed.mjs",
-            "stop.mjs",
         ]
         scripts = code_agent_scripts()
         names = [os.path.basename(s) for s in scripts]

@@ -1,4 +1,4 @@
-"""Unit tests for AgentArtsMemoryClient (server/agentarts_client.py).
+"""Unit tests for AgentArtsMemoryClient (agentarts_client.py).
 
 Uses a fake SDK namespace so no cloud SDK or network is required.
 """
@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentarts.toolkit.plugins.memory.server import agentarts_client as ac
-from agentarts.toolkit.plugins.memory.server.agentarts_client import AgentArtsMemoryClient
+from agentarts.toolkit.plugins.memory import agentarts_client as ac
+from agentarts.toolkit.plugins.memory.agentarts_client import AgentArtsMemoryClient
 
 
 # ── fake SDK ───────────────────────────────────────────────────────
@@ -46,6 +46,10 @@ def _make_client(monkeypatch, space_id="space-1", ak="ak1", sk="sk1", api_key="k
     monkeypatch.setenv("HUAWEICLOUD_SDK_MEMORY_API_KEY", api_key)
     sdk = _fake_sdk()
     client = AgentArtsMemoryClient(sdk=sdk)
+    # Disable file-based cache for unit tests — only test in-memory logic.
+    monkeypatch.setattr(AgentArtsMemoryClient, "_get_cached_sid_from_file", staticmethod(lambda _: None))
+    monkeypatch.setattr(AgentArtsMemoryClient, "_put_cached_sid_to_file", staticmethod(lambda *a: None))
+    monkeypatch.setattr(AgentArtsMemoryClient, "_invalidate_cached_sid", staticmethod(lambda *a: None))
     return client
 
 

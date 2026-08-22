@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import logging
 import os
+import json
+import tempfile
+import time
 import threading
 from typing import Any
 
-logger = logging.getLogger("agentarts_memory_code_agent.server")
+logger = logging.getLogger("agentarts_memory_agent.server")
 
 # Debug mode from environment
 DEBUG = os.getenv("AGENTARTS_MEMORY_LOG_LEVEL", "info").lower() == "debug"
@@ -23,10 +26,13 @@ ENV_REGION = "HUAWEICLOUD_SDK_REGION"
 ENV_SPACE_ID = "AGENTARTS_MEMORY_SPACE_ID"
 
 DEFAULT_REGION = "cn-southwest-2"
-DEFAULT_ASSISTANT_ID = "agentarts-memory-code_agent"
+DEFAULT_ASSISTANT_ID = "agentarts-memory-agent"
 DEFAULT_TOP_K = 5
 DEFAULT_LIST_LIMIT = 10
 DEFAULT_MIN_SCORE = 0.3
+SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
+SESSION_CACHE_DIR = os.path.join(tempfile.gettempdir(), "agentarts_memory")
+SESSION_CACHE_FILE = os.path.join(SESSION_CACHE_DIR, "sessions.json")
 
 
 def import_memory_sdk() -> Any:
@@ -68,8 +74,55 @@ class AgentArtsMemoryClient:
         self._sdk = sdk or import_memory_sdk()
         self._client: Any = None
         self._lock = threading.Lock()
-        # scope_id:actor_id -> session_id cache
+        # scope_id:actor_id -> session_id cache (in-memory)
         self._sessions: dict[str, str] = {}
+
+    # ── file-based session cache (shared with hook scripts) ──
+
+    @staticmethod
+    def _read_file_cache() -> dict[str, Any]:
+        try:
+            if os.path.exists(SESSION_CACHE_FILE):
+                with open(SESSION_CACHE_FILE, encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
+    def _write_file_cache(data: dict[str, Any]) -> None:
+        try:
+            os.makedirs(SESSION_CACHE_DIR, exist_ok=True)
+            with open(SESSION_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _get_cached_sid_from_file(cache_key: str) -> str | None:
+        entry = AgentArtsMemoryClient._read_file_cache().get(cache_key)
+        if not entry:
+            return None
+        if isinstance(entry, str):
+            return None  # old format, force re-create
+        sid = entry.get("sid")
+        ts = entry.get("ts", 0)
+        if sid and (time.time() - ts) < SESSION_TTL_SECONDS:
+            return sid
+        return None
+
+    @staticmethod
+    def _put_cached_sid_to_file(cache_key: str, sid: str) -> None:
+        data = AgentArtsMemoryClient._read_file_cache()
+        data[cache_key] = {"sid": sid, "ts": int(time.time())}
+        AgentArtsMemoryClient._write_file_cache(data)
+
+    @staticmethod
+    def _invalidate_cached_sid(cache_key: str) -> None:
+        data = AgentArtsMemoryClient._read_file_cache()
+        if cache_key in data:
+            del data[cache_key]
+            AgentArtsMemoryClient._write_file_cache(data)
 
     # ── availability ──
     def is_configured(self) -> bool:
@@ -102,6 +155,11 @@ class AgentArtsMemoryClient:
                         sid,
                     )
                 return sid
+            # Check file-based cache (shared with hook scripts).
+            file_sid = self._get_cached_sid_from_file(cache_key)
+            if file_sid:
+                self._sessions[cache_key] = file_sid
+                return file_sid
             client = self._ensure_client()
             if DEBUG:
                 logger.debug(
@@ -119,6 +177,7 @@ class AgentArtsMemoryClient:
             if not sid:
                 raise RuntimeError("create_memory_session returned empty session id")
             self._sessions[cache_key] = sid
+            self._put_cached_sid_to_file(cache_key, sid)
             if DEBUG:
                 logger.debug(
                     "[SDK] session created | scope_id=%s, actor_id=%s, session_id=%s",
@@ -127,6 +186,13 @@ class AgentArtsMemoryClient:
                     sid,
                 )
             return sid
+
+    def invalidate_session(self, scope_id: str, actor_id: str) -> None:
+        """Invalidate cached session for scope+actor (in-memory + file)."""
+        with self._lock:
+            cache_key = f"{scope_id}:{actor_id}"
+            self._sessions.pop(cache_key, None)
+            self._invalidate_cached_sid(cache_key)
 
     # ── operations ──
     def add_messages(

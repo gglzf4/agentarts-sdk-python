@@ -1,24 +1,43 @@
-// agentarts-memory-code_agent OpenCode plugin — TypeScript Plugin SDK implementation.
+// agentarts-memory-agent OpenCode plugin — direct cloud REST integration.
 //
 // Drop this file into ~/.config/opencode/plugins/ and reference it in
 // ~/.config/opencode/opencode.json:
 //   { "plugin": ["./plugins/agentarts-memory-capture.ts"] }
-//
-// Requires: @opencode-ai/plugin types (provided by OpenCode at runtime).
 
 import type { Plugin } from "@opencode-ai/plugin";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
-// Config
+// Cloud config
 // ---------------------------------------------------------------------------
-const REST_URL =
-  process.env.AGENTARTS_MEMORY_SERVER_URL || "http://127.0.0.1:8719";
+const ENV_API_KEY = "HUAWEICLOUD_SDK_MEMORY_API_KEY";
+const ENV_SPACE_ID = "AGENTARTS_MEMORY_SPACE_ID";
+const ENV_REGION = "HUAWEICLOUD_SDK_REGION";
+const ENV_DATA_ENDPOINT = "AGENTARTS_MEMORY_DATA_ENDPOINT";
+const DEFAULT_REGION = "cn-southwest-2";
+const ASSISTANT_ID = "agentarts-memory-agent";
+
 const DEBUG = process.env.AGENTARTS_MEMORY_DEBUG === "1";
 
-// Platform detection for OpenCode — default to opencode since this plugin only runs in OpenCode
+function getCloudBaseUrl(): string {
+  const explicit = process.env[ENV_DATA_ENDPOINT];
+  if (explicit) return explicit.replace(/\/$/, "");
+  const region = process.env[ENV_REGION] || DEFAULT_REGION;
+  return `https://memory.${region}.huaweicloud-agentarts.com`;
+}
+
+function getApiKey(): string {
+  return process.env[ENV_API_KEY] || "";
+}
+
+function getSpaceId(): string {
+  return process.env[ENV_SPACE_ID] || "";
+}
+
 function detectOpenCodePlatform(): string {
   if (process.env.OPENCODE_PLUGIN_ROOT) return "opencode";
-  // Default to opencode for this plugin since it's OpenCode-specific
   return "opencode";
 }
 
@@ -27,7 +46,6 @@ const PLATFORM_USER_ID: Record<string, string> = {
   "unknown": "__default__",
 };
 
-// Lazy-resolved default user_id, computed at runtime when first needed
 let _cachedDefaultUserId: string | null = null;
 function getDefaultUserId(): string {
   if (_cachedDefaultUserId === null) {
@@ -40,13 +58,6 @@ const SEARCH_MEM_NUM = 5;
 const SEARCH_SUMMARY_NUM = 3;
 const DEFAULT_THRESHOLD = 0.3;
 
-/**
- * Resolve user_id with priority:
- *   1. payload.user_id / payload.userId (from hook request)
- *   2. AGENTARTS_MEMORY_USER_ID env var
- *   3. OPENCODE_PLUGIN_ROOT detected -> "opencode-user"
- *   4. Default: "__default__"
- */
 function resolveUserId(payload: unknown): string {
   if (payload && typeof payload === "object") {
     const explicit = (payload as any).user_id || (payload as any).userId;
@@ -58,51 +69,134 @@ function resolveUserId(payload: unknown): string {
 }
 
 function authHeaders(): Record<string, string> {
-  return { "Content-Type": "application/json" };
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${getApiKey()}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// HTTP helpers
+// Session cache (file-based, cross-process)
 // ---------------------------------------------------------------------------
-async function post(
-  path: string,
-  body: Record<string, unknown>,
-  timeoutMs = 3000,
-): Promise<void> {
+const SESSION_CACHE_DIR = join(tmpdir(), "agentarts_memory");
+const SESSION_CACHE_FILE = join(SESSION_CACHE_DIR, "sessions.json");
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function readSessionCache(): Record<string, unknown> {
   try {
-    const res = await fetch(`${REST_URL}/${path}`, {
+    if (existsSync(SESSION_CACHE_FILE)) {
+      return JSON.parse(readFileSync(SESSION_CACHE_FILE, "utf8"));
+    }
+  } catch {}
+  return {};
+}
+
+function writeSessionCache(data: Record<string, unknown>): void {
+  try {
+    mkdirSync(SESSION_CACHE_DIR, { recursive: true });
+    writeFileSync(SESSION_CACHE_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+async function getSessionId(scopeId: string, userId: string): Promise<string> {
+  const cacheKey = `${scopeId}:${userId}`;
+  const cache = readSessionCache();
+  const entry = cache[cacheKey];
+  // Backwards compat: old format stored a plain string; force re-create.
+  if (entry && typeof entry === "object" && entry.sid) {
+    const e = entry as { sid: string; ts: number };
+    if (Date.now() - e.ts < SESSION_TTL_MS) return e.sid;
+  }
+
+  const baseUrl = getCloudBaseUrl();
+  const spaceId = getSpaceId();
+  const res = await fetch(`${baseUrl}/v1/core/spaces/${spaceId}/sessions`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ actor_id: userId, assistant_id: ASSISTANT_ID }),
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) throw new Error(`create session failed: ${res.status}`);
+  const data = await res.json();
+  const sid = data.id || data.session_id || "";
+  if (!sid) throw new Error("create session returned empty id");
+
+  cache[cacheKey] = { sid, ts: Date.now() };
+  writeSessionCache(cache);
+  return sid;
+}
+
+function invalidateSession(scopeId: string, userId: string): void {
+  const cacheKey = `${scopeId}:${userId}`;
+  const cache = readSessionCache();
+  delete cache[cacheKey];
+  writeSessionCache(cache);
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helpers — all calls go to cloud REST API directly
+// ---------------------------------------------------------------------------
+async function post(path: string, body: Record<string, unknown>, timeoutMs = 3000): Promise<void> {
+  await postWithStatus(path, body, timeoutMs);
+}
+
+async function postWithStatus(path: string, body: Record<string, unknown>, timeoutMs = 3000): Promise<{ ok: boolean; status: number }> {
+  try {
+    const baseUrl = getCloudBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (DEBUG && !res.ok)
-      console.error(`[agentarts] POST /${path} returned ${res.status}`);
+    if (DEBUG && !res.ok) console.error(`[agentarts] POST ${path} returned ${res.status}`);
+    return { ok: res.ok, status: res.status };
   } catch (e) {
-    if (DEBUG) console.error(`[agentarts] POST /${path} failed:`, (e as Error).message);
+    if (DEBUG) console.error(`[agentarts] POST ${path} failed:`, (e as Error).message);
   }
+  return { ok: false, status: 0 };
 }
 
-async function postJson(
-  path: string,
-  body: Record<string, unknown>,
-  timeoutMs = 0,
-): Promise<unknown | null> {
+async function postJson(path: string, body: Record<string, unknown>, timeoutMs = 3000): Promise<unknown | null> {
   try {
-    const opts: RequestInit = {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify(body),
-    };
+    const baseUrl = getCloudBaseUrl();
+    const opts: RequestInit = { method: "POST", headers: authHeaders(), body: JSON.stringify(body) };
     if (timeoutMs > 0) opts.signal = AbortSignal.timeout(timeoutMs);
-    const res = await fetch(`${REST_URL}/${path}`, opts);
+    const res = await fetch(`${baseUrl}${path}`, opts);
     if (res.ok) return await res.json();
-    if (DEBUG) console.error(`[agentarts] POST /${path} returned ${res.status}`);
+    if (DEBUG) console.error(`[agentarts] POST ${path} returned ${res.status}`);
   } catch (e) {
-    if (DEBUG)
-      console.error(`[agentarts] POST /${path} (json) failed:`, (e as Error).message);
+    if (DEBUG) console.error(`[agentarts] POST ${path} (json) failed:`, (e as Error).message);
   }
   return null;
+}
+
+async function getJson(path: string, timeoutMs = 2000): Promise<unknown | null> {
+  try {
+    const baseUrl = getCloudBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "GET",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (res.ok) return await res.json();
+  } catch {}
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Cloud REST path builders
+// ---------------------------------------------------------------------------
+function epSearchMemories(spaceId: string): string {
+  return `/v1/core/spaces/${spaceId}/memories/search`;
+}
+
+function epListMemories(spaceId: string, limit: number, offset: number): string {
+  return `/v1/core/spaces/${spaceId}/memories?limit=${limit}&offset=${offset}`;
+}
+
+function epAddMessages(spaceId: string, sid: string): string {
+  return `/v1/core/spaces/${spaceId}/sessions/${sid}/messages`;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +207,33 @@ async function addMessages(
   scopeId: string,
   userId = getDefaultUserId(),
 ): Promise<void> {
-  await post("add_messages/", { messages, user_id: userId, scope_id: scopeId });
+  try {
+    const spaceId = getSpaceId();
+    if (!spaceId || !getApiKey()) return;
+    const sid = await getSessionId(scopeId, userId);
+
+    const sdkMsgs = messages.map((m) => ({
+      role: m.role,
+      parts: [{ type: "text", text: m.content }],
+      actor_id: userId,
+      assistant_id: ASSISTANT_ID,
+    }));
+
+    const body = {
+      messages: sdkMsgs,
+      is_force_extract: false,
+    };
+    const { ok, status } = await postWithStatus(epAddMessages(spaceId, sid), body);
+
+    // Session expired or deleted on the cloud side — invalidate cache and retry once.
+    if (!ok && (status === 404 || status === 410)) {
+      invalidateSession(scopeId, userId);
+      const newSid = await getSessionId(scopeId, userId);
+      await post(epAddMessages(spaceId, newSid), body);
+    }
+  } catch (e) {
+    if (DEBUG) console.error(`[agentarts] addMessages failed:`, (e as Error).message);
+  }
 }
 
 async function searchAndFormat(
@@ -121,43 +241,65 @@ async function searchAndFormat(
   scopeId: string,
   userId = getDefaultUserId(),
 ): Promise<string> {
-  const [memResult, summaryResult] = await Promise.all([
-    postJson("search_memory/", {
+  const spaceId = getSpaceId();
+  if (!spaceId || !getApiKey()) return "";
+
+  const [searchResult, listResult] = await Promise.all([
+    postJson(epSearchMemories(spaceId), {
       query,
-      num: SEARCH_MEM_NUM,
-      user_id: userId,
-      scope_id: scopeId,
-      threshold: DEFAULT_THRESHOLD,
+      top_k: SEARCH_MEM_NUM,
+      min_score: DEFAULT_THRESHOLD,
+      actor_id: userId,
     }),
-    postJson("search_summary/", {
-      query,
-      num: SEARCH_SUMMARY_NUM,
-      user_id: userId,
-      scope_id: scopeId,
-      threshold: DEFAULT_THRESHOLD,
-    }),
+    getJson(epListMemories(spaceId, Math.max(SEARCH_SUMMARY_NUM * 5, 10), 0)),
   ]);
 
-  const memItems = ((memResult as any)?.results || []) as Array<Record<string, unknown>>;
-  const summaryItems = ((summaryResult as any)?.results || []) as Array<Record<string, unknown>>;
-  const lines: string[] = [];
+  // Parse search results (handle both "records" and "results" formats)
+  const memItems: Array<Record<string, unknown>> = [];
+  const rawResults = (searchResult as any)?.records || (searchResult as any)?.results || [];
+  for (const item of rawResults) {
+    const record = item.record || item;
+    const content = record.content || record.text || record.summary || "";
+    const score = item.score || 0;
+    const type = record.strategy_type || record.memory_type || record.type || "";
+    memItems.push({
+      content: String(content).slice(0, 300),
+      score: Number(score),
+      type,
+    });
+  }
 
+  // Parse list results for summary types
+  const summaryTypes: Record<string, boolean> = { summary: true, episodic: true, user_preference: true };
+  const allItems = (listResult as any)?.items || [];
+  const summaryItems: Array<Record<string, unknown>> = [];
+  for (const m of allItems) {
+    const type = m.strategy_type || m.memory_type || m.type || "";
+    if (type in summaryTypes) {
+      summaryItems.push({ content: String(m.content || "").slice(0, 300), score: 0, type });
+    }
+  }
+  const finalSummaryItems = summaryItems.length > 0
+    ? summaryItems
+    : allItems.map((m: any) => ({
+        content: String(m.content || "").slice(0, 300),
+        score: 0,
+        type: m.strategy_type || m.memory_type || m.type || "",
+      }));
+
+  const lines: string[] = [];
   if (memItems.length) {
     lines.push("## Related Memories");
     for (const r of memItems) {
       const label = r.type ? `[${r.type}]` : "";
-      lines.push(
-        `- ${label} ${String(r.content || "").slice(0, 300)} (score: ${Number(r.score || 0).toFixed(2)})`,
-      );
+      lines.push(`- ${label} ${r.content} (score: ${Number(r.score || 0).toFixed(2)})`);
     }
   }
-  if (summaryItems.length) {
+  if (finalSummaryItems.length) {
     if (lines.length) lines.push("");
     lines.push("## Related History Summaries");
-    for (const r of summaryItems) {
-      lines.push(
-        `- ${String(r.content || "").slice(0, 300)} (score: ${Number(r.score || 0).toFixed(2)})`,
-      );
+    for (const r of finalSummaryItems.slice(0, SEARCH_SUMMARY_NUM)) {
+      lines.push(`- ${r.content} (score: ${Number(r.score || 0).toFixed(2)})`);
     }
   }
   return lines.join("\n");
@@ -180,7 +322,7 @@ Never fabricate memory results — only present what the tools return.
 // Session state
 // ---------------------------------------------------------------------------
 let activeSessionId: string | null = null;
-let sessionUserId: string | null = null;  // Per-session user_id from hooks
+let sessionUserId: string | null = null;
 const DEFAULT_SCOPE_ID = process.env.AGENTARTS_MEMORY_PROJECT_NAME || "opencode-default";
 let projectScopeId: string = DEFAULT_SCOPE_ID;
 const contextInjectedSessions = new Set<string>();
@@ -199,7 +341,6 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
     if (derived) projectScopeId = derived;
   }
 
-  // Resolve user_id from context (hooks request) with fallback
   const getUserId = () => sessionUserId || resolveUserId(ctx);
 
   return {
@@ -213,21 +354,12 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
         activeSessionId = (info?.id as string) || props.sessionID || null;
         if (!activeSessionId) return;
 
-        // Resolve user_id from session creation props
         sessionUserId = resolveUserId(props);
 
         contextInjectedSessions.delete(activeSessionId);
         sessionLastUserQuery.delete(activeSessionId);
         sessionPendingAdd.delete(activeSessionId);
         sessionSearchResult.delete(activeSessionId);
-        // Probe health — best-effort, never fatal.
-        try {
-          await fetch(`${REST_URL}/health`, {
-            method: "GET",
-            headers: authHeaders(),
-            signal: AbortSignal.timeout(800),
-          });
-        } catch {}
       }
 
       // ── session.deleted ──
@@ -246,7 +378,6 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
       }
 
       // ── message.updated (assistant) ──
-      // AI 回复结束后，把之前存的用户 query 写入记忆（延后写入避免打断对话）
       if (type === "message.updated") {
         const info = props.info as Record<string, unknown> | undefined;
         if (!info) return;
@@ -256,8 +387,6 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
           const pendingQuery = sessionPendingAdd.get(sid);
           if (!pendingQuery) return;
           sessionPendingAdd.delete(sid);
-          // Include the OpenCode session ID in scope_id so each conversation
-          // gets its own memory session (not shared across conversations).
           await addMessages(
             [{ role: "user", content: pendingQuery }],
             `${projectScopeId}:${sid}`,
@@ -267,8 +396,6 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
       }
     },
 
-    // ── chat.message ──
-    // Store the user query, mark it pending for later add, AND run the search.
     "chat.message": async (input: any, output: any) => {
       const sid = input.sessionID || activeSessionId;
       if (!sid) return;
@@ -285,32 +412,27 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
       sessionLastUserQuery.set(sid, query);
       sessionPendingAdd.set(sid, userText.slice(0, 8000));
 
-      // Search once per user message, cache the result.
       const searchResult = await searchAndFormat(query, projectScopeId, getUserId());
       if (searchResult) sessionSearchResult.set(sid, searchResult);
       else sessionSearchResult.delete(sid);
     },
 
-    // ── experimental.chat.system.transform ──
     "experimental.chat.system.transform": async (input: any, output: any) => {
       const sid = input.sessionID || activeSessionId;
       if (!sid) return;
       if (!Array.isArray(output.system)) return;
 
-      // Inject usage instructions once per session.
       if (!contextInjectedSessions.has(sid)) {
         output.system.push(AGENTARTS_INSTRUCTIONS);
         contextInjectedSessions.add(sid);
       }
 
-      // Inject cached search result (read-only, no re-search).
       const cachedResult = sessionSearchResult.get(sid);
       if (cachedResult) {
         output.system.push(cachedResult);
       }
     },
 
-    // ── experimental.session.compacting ──
     "experimental.session.compacting": async (input: any, output: any) => {
       const sid = input.sessionID || activeSessionId;
       if (!sid) return;
@@ -326,7 +448,6 @@ export const AgentArtsMemoryCapturePlugin: Plugin = async (ctx) => {
       }
     },
 
-    // ── config ──
     config: async (input: any) => {
       if (DEBUG) {
         console.error("[agentarts] config loaded:", { theme: input.theme, model: input.model });

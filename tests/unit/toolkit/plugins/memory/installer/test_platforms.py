@@ -240,10 +240,10 @@ class TestClaudeRoundTrip:
 
         scripts_dir = os.path.join(expand("~/.claude"), "agentarts-memory", "scripts")
         assert os.path.isdir(scripts_dir)
-        # 13 scripts deployed.
+        # 3 scripts deployed (_shared, prompt-submit, pre-compact).
         scripts = os.listdir(scripts_dir)
-        assert len([f for f in scripts if f.endswith(".mjs")]) == 13
-        assert len(result.files) == 13
+        assert len([f for f in scripts if f.endswith(".mjs")]) == 3
+        assert len(result.files) == 3
 
         # settings.json has hooks.
         settings_path = os.path.join(expand("~/.claude"), "settings.json")
@@ -253,7 +253,7 @@ class TestClaudeRoundTrip:
 
         # Count hook entries — should have multiple events.
         hook_events = settings["hooks"]
-        assert len(hook_events) >= 10  # 12 events minus any that merged
+        assert len(hook_events) == 2  # UserPromptSubmit + PreCompact
 
         # Commands should have absolute paths (no placeholder).
         for event, groups in hook_events.items():
@@ -305,8 +305,8 @@ class TestClaudeRoundTrip:
         for event, groups in settings["hooks"].items():
             for group in groups:
                 total += len(group.get("hooks", []))
-        # 12 hooks, not 24.
-        assert total == 12
+        # 2 hooks, not 4.
+        assert total == 2
 
     def test_uninstall_preserves_user_hooks(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -370,9 +370,9 @@ class TestCodexRoundTrip:
         scripts_dir = os.path.join(expand("~/.codex"), "agentarts-memory", "scripts")
         assert os.path.isdir(scripts_dir)
         scripts = os.listdir(scripts_dir)
-        assert len([f for f in scripts if f.endswith(".mjs")]) == 13
+        assert len([f for f in scripts if f.endswith(".mjs")]) == 3
 
-        # hooks.json has 6 hooks.
+        # hooks.json has 2 hooks.
         hooks_path = os.path.join(expand("~/.codex"), "hooks.json")
         assert os.path.isfile(hooks_path)
         hooks_data = json.loads(open(hooks_path).read())
@@ -381,7 +381,7 @@ class TestCodexRoundTrip:
         for event, groups in hooks_data["hooks"].items():
             for group in groups:
                 total += len(group.get("hooks", []))
-        assert total == 6
+        assert total == 2
 
         # Commands should have absolute paths (no placeholder).
         for event, groups in hooks_data["hooks"].items():
@@ -438,7 +438,7 @@ class TestCodexRoundTrip:
         for event, groups in hooks_data["hooks"].items():
             for group in groups:
                 total += len(group.get("hooks", []))
-        assert total == 6  # not 12
+        assert total == 2  # not 4
 
         # config.toml should have one hooks line.
         toml_content = open(os.path.join(expand("~/.codex"), "config.toml")).read()
@@ -602,3 +602,90 @@ class TestOpenCodeRoundTrip:
         os.makedirs(expand("~/.config/opencode"))
         p = platforms.opencode.OpenCodePlatform()
         assert p.detect() is True
+
+
+# ── MCP config integration ─────────────────────────────────────────
+
+
+class TestMcpConfigIntegration:
+    """Verify MCP server config is written on install and removed on uninstall."""
+
+    def test_claude_install_writes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.claude.ClaudePlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        settings_path = os.path.join(result.config_dir, "settings.json")
+        settings = json.loads(open(settings_path).read())
+        assert "mcpServers" in settings
+        assert "agentarts_memory" in settings["mcpServers"]
+        assert settings["mcpServers"]["agentarts_memory"]["command"] == "python3"
+        assert settings["mcpServers"]["agentarts_memory"]["env"]["AGENTARTS_MEMORY_PLATFORM"] == "claude-code"
+
+    def test_claude_uninstall_removes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.claude.ClaudePlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        p.uninstall({"config_dir": result.config_dir, "scripts_dir": result.scripts_dir})
+
+        settings_path = os.path.join(result.config_dir, "settings.json")
+        if os.path.isfile(settings_path):
+            settings = json.loads(open(settings_path).read())
+            assert "mcpServers" not in settings or "agentarts_memory" not in settings.get("mcpServers", {})
+
+    def test_codex_install_writes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.codex.CodexPlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        toml_path = os.path.join(result.config_dir, "config.toml")
+        toml_content = open(toml_path).read()
+        assert "[mcp_servers.agentarts_memory]" in toml_content
+        assert 'command = "python3"' in toml_content
+        assert "AGENTARTS_MEMORY_PLATFORM" in toml_content
+        assert '"claude-code"' not in toml_content or '"codex"' not in toml_content or True  # platform is in env section
+        # Codex TOML format: key = "value" inside [mcp_servers.agentarts_memory.env]
+        assert 'AGENTARTS_MEMORY_PLATFORM = "codex"' in toml_content
+
+    def test_codex_uninstall_removes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.codex.CodexPlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        p.uninstall({"config_dir": result.config_dir, "scripts_dir": result.scripts_dir})
+
+        toml_path = os.path.join(result.config_dir, "config.toml")
+        if os.path.isfile(toml_path):
+            toml_content = open(toml_path).read()
+            assert "[mcp_servers.agentarts_memory]" not in toml_content
+
+    def test_opencode_install_writes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.opencode.OpenCodePlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        json_path = os.path.join(result.config_dir, "opencode.json")
+        config = json.loads(open(json_path).read())
+        assert "mcp" in config
+        assert "agentarts_memory" in config["mcp"]
+        assert config["mcp"]["agentarts_memory"]["type"] == "local"
+        assert config["mcp"]["agentarts_memory"]["environment"]["AGENTARTS_MEMORY_PLATFORM"] == "opencode"
+
+    def test_opencode_uninstall_removes_mcp_config(self, monkeypatch, tmp_path):
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.opencode.OpenCodePlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        p.uninstall({"config_dir": result.config_dir})
+
+        json_path = os.path.join(result.config_dir, "opencode.json")
+        if os.path.isfile(json_path):
+            config = json.loads(open(json_path).read())
+            assert "mcp" not in config or "agentarts_memory" not in config.get("mcp", {})

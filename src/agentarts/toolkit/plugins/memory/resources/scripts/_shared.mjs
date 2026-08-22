@@ -1,26 +1,14 @@
-// agentarts-memory-code_agent — shared utilities for hook scripts.
+// agentarts-memory-agent — shared utilities for hook scripts.
 //
-// All hook scripts import from this module for:
-//   - REST URL / timeout config
-//   - resolveProject(cwd) — git toplevel basename for scope isolation
-//   - addMessages() / searchAndFormat() / healthCheck() — HTTP calls
-//   - platform detection (Claude Code vs Codex vs Cursor)
-//   - output formatting
+// Direct cloud REST integration: hook scripts call Huawei Cloud AgentArts
+// Memory data-plane API directly via fetch(), without a local HTTP server.
 
 import { execSync } from "node:child_process";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 
-// ---------------------------------------------------------------------------
-// Version
-// ---------------------------------------------------------------------------
-export const PLUGIN_VERSION = "1.0.0";
-
-// ---------------------------------------------------------------------------
 // Platform detection
-//
-// Claude Code sets CLAUDE_PLUGIN_ROOT; Codex sets CODEX_PLUGIN_ROOT.
-// OpenCode sets OPENCODE_PLUGIN_ROOT.
-// Used to derive a per-platform default user_id.
 // ---------------------------------------------------------------------------
 export function detectPlatform() {
   if (process.env.AGENTARTS_MEMORY_PLATFORM) return process.env.AGENTARTS_MEMORY_PLATFORM;
@@ -38,22 +26,35 @@ const PLATFORM_USER_ID = {
 };
 
 // ---------------------------------------------------------------------------
-// Config
+// Cloud config
 // ---------------------------------------------------------------------------
-export const REST_URL =
-  process.env.AGENTARTS_MEMORY_SERVER_URL || "http://127.0.0.1:8719";
+const ENV_API_KEY = "HUAWEICLOUD_SDK_MEMORY_API_KEY";
+const ENV_SPACE_ID = "AGENTARTS_MEMORY_SPACE_ID";
+const ENV_REGION = "HUAWEICLOUD_SDK_REGION";
+const ENV_DATA_ENDPOINT = "AGENTARTS_MEMORY_DATA_ENDPOINT";
+const DEFAULT_REGION = "cn-southwest-2";
+const ASSISTANT_ID = "agentarts-memory-agent";
+
 export const DEBUG = process.env.AGENTARTS_MEMORY_DEBUG === "1";
 
-// Default user_id from environment or platform detection
+export function getCloudBaseUrl() {
+  const explicit = process.env[ENV_DATA_ENDPOINT];
+  if (explicit) return explicit.replace(/\/$/, "");
+  const region = process.env[ENV_REGION] || DEFAULT_REGION;
+  return `https://memory.${region}.huaweicloud-agentarts.com`;
+}
+
+function getApiKey() {
+  return process.env[ENV_API_KEY] || "";
+}
+
+function getSpaceId() {
+  return process.env[ENV_SPACE_ID] || "";
+}
+
 export const DEFAULT_USER_ID =
   process.env.AGENTARTS_MEMORY_USER_ID || PLATFORM_USER_ID[detectPlatform()];
 
-/**
- * Resolve user_id with priority:
- *   1. AGENTARTS_MEMORY_USER_ID env var (explicit override)
- *   2. payload.user_id / payload.userId (from hook request)
- *   3. Platform-based default (cc-user / codex-user / __default__)
- */
 export function resolveUserId(payload) {
   if (process.env.AGENTARTS_MEMORY_USER_ID) return process.env.AGENTARTS_MEMORY_USER_ID;
   if (payload && typeof payload === "object") {
@@ -68,67 +69,145 @@ export function resolveUserId(payload) {
 export const SEARCH_MEM_NUM = 5;
 export const SEARCH_SUMMARY_NUM = 3;
 export const DEFAULT_THRESHOLD = 0.3;
-export const MAX_TRUNCATE = 8000;
 
 // ---------------------------------------------------------------------------
-// HTTP helpers
+// Auth headers
 // ---------------------------------------------------------------------------
 export function authHeaders() {
-  return { "Content-Type": "application/json" };
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${getApiKey()}`,
+  };
 }
 
-export async function post(path, body, timeoutMs = 3000) {
+// ---------------------------------------------------------------------------
+// Session cache (file-based, cross-process)
+// ---------------------------------------------------------------------------
+const SESSION_CACHE_DIR = join(tmpdir(), "agentarts_memory");
+const SESSION_CACHE_FILE = join(SESSION_CACHE_DIR, "sessions.json");
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function readSessionCache() {
   try {
-    const res = await fetch(`${REST_URL}/${path}`, {
+    if (existsSync(SESSION_CACHE_FILE)) {
+      return JSON.parse(readFileSync(SESSION_CACHE_FILE, "utf8"));
+    }
+  } catch {}
+  return {};
+}
+
+function writeSessionCache(data) {
+  try {
+    mkdirSync(SESSION_CACHE_DIR, { recursive: true });
+    writeFileSync(SESSION_CACHE_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+function getCachedSid(cache, cacheKey) {
+  const entry = cache[cacheKey];
+  if (!entry) return null;
+  // Backwards compat: old format stored a plain string.
+  if (typeof entry === "string") return null; // force re-create
+  if (entry.sid && Date.now() - entry.ts < SESSION_TTL_MS) return entry.sid;
+  return null;
+}
+
+function invalidateSession(scopeId, userId) {
+  const cacheKey = `${scopeId}:${userId}`;
+  const cache = readSessionCache();
+  delete cache[cacheKey];
+  writeSessionCache(cache);
+}
+
+export async function getSessionId(scopeId, userId) {
+  const cacheKey = `${scopeId}:${userId}`;
+  const cache = readSessionCache();
+  const cached = getCachedSid(cache, cacheKey);
+  if (cached) return cached;
+
+  const baseUrl = getCloudBaseUrl();
+  const spaceId = getSpaceId();
+  const res = await fetch(`${baseUrl}/v1/core/spaces/${spaceId}/sessions`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ actor_id: userId, assistant_id: ASSISTANT_ID }),
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) throw new Error(`create session failed: ${res.status}`);
+  const data = await res.json();
+  const sid = data.id || data.session_id || "";
+  if (!sid) throw new Error("create session returned empty id");
+
+  cache[cacheKey] = { sid, ts: Date.now() };
+  writeSessionCache(cache);
+  return sid;
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helpers — all calls go to cloud REST API directly
+// ---------------------------------------------------------------------------
+export async function post(path, body, timeoutMs = 3000) {
+  const { ok } = await postWithStatus(path, body, timeoutMs);
+}
+
+export async function postWithStatus(path, body, timeoutMs = 3000) {
+  try {
+    const baseUrl = getCloudBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (DEBUG && !res.ok) console.error(`[agentarts] POST /${path} returned ${res.status}`);
+    if (DEBUG && !res.ok) console.error(`[agentarts] POST ${path} returned ${res.status}`);
+    return { ok: res.ok, status: res.status };
   } catch (e) {
-    if (DEBUG) console.error(`[agentarts] POST /${path} failed:`, e?.message || e);
+    if (DEBUG) console.error(`[agentarts] POST ${path} failed:`, e?.message || e);
   }
+  return { ok: false, status: 0 };
 }
 
-export async function postJson(path, body, timeoutMs = 0) {
+export async function postJson(path, body, timeoutMs = 3000) {
   try {
-    const opts = {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify(body),
-    };
+    const baseUrl = getCloudBaseUrl();
+    const opts = { method: "POST", headers: authHeaders(), body: JSON.stringify(body) };
     if (timeoutMs > 0) opts.signal = AbortSignal.timeout(timeoutMs);
-    const res = await fetch(`${REST_URL}/${path}`, opts);
+    const res = await fetch(`${baseUrl}${path}`, opts);
     if (res.ok) return await res.json();
-    if (DEBUG) console.error(`[agentarts] POST /${path} returned ${res.status}`);
+    if (DEBUG) console.error(`[agentarts] POST ${path} returned ${res.status}`);
   } catch (e) {
-    if (DEBUG) console.error(`[agentarts] POST /${path} (json) failed:`, e?.message || e);
+    if (DEBUG) console.error(`[agentarts] POST ${path} (json) failed:`, e?.message || e);
   }
   return null;
 }
 
-export async function getJson(path, timeoutMs = 800) {
+export async function getJson(path, timeoutMs = 2000) {
   try {
-    const res = await fetch(`${REST_URL}/${path}`, {
+    const baseUrl = getCloudBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "GET",
       headers: authHeaders(),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (res.ok) return await res.json();
-  } catch {
-    // ignore
-  }
+  } catch {}
   return null;
 }
 
 // ---------------------------------------------------------------------------
-// Endpoints (trailing slash matches FastAPI route declarations)
+// Cloud REST path builders
 // ---------------------------------------------------------------------------
-const EP_ADD_MESSAGES = "add_messages/";
-const EP_SEARCH_MEMORY = "search_memory/";
-const EP_SEARCH_SUMMARY = "search_summary/";
-const EP_HEALTH = "health";
+function epSearchMemories(spaceId) {
+  return `/v1/core/spaces/${spaceId}/memories/search`;
+}
+
+function epListMemories(spaceId, limit, offset) {
+  return `/v1/core/spaces/${spaceId}/memories?limit=${limit}&offset=${offset}`;
+}
+
+function epAddMessages(spaceId, sid) {
+  return `/v1/core/spaces/${spaceId}/sessions/${sid}/messages`;
+}
 
 // ---------------------------------------------------------------------------
 // Project resolution — scope_id = project basename for per-project isolation.
@@ -152,66 +231,111 @@ export function resolveProject(cwd) {
 // High-level operations
 // ---------------------------------------------------------------------------
 export async function addMessages(messages, scopeId, userId = DEFAULT_USER_ID) {
-  await post(EP_ADD_MESSAGES, {
-    messages,
-    user_id: userId,
-    scope_id: scopeId,
-    plugin_version: PLUGIN_VERSION,
-  }, 3000);
+  try {
+    const spaceId = getSpaceId();
+    if (!spaceId || !getApiKey()) return;
+    const sid = await getSessionId(scopeId, userId);
+
+    const sdkMsgs = messages.map(m => ({
+      role: m.role,
+      parts: [{ type: "text", text: m.content }],
+      actor_id: userId,
+      assistant_id: ASSISTANT_ID,
+    }));
+
+    const body = {
+      messages: sdkMsgs,
+      is_force_extract: false,
+    };
+    const { ok, status } = await postWithStatus(epAddMessages(spaceId, sid), body, 3000);
+
+    // Session expired or deleted on the cloud side — invalidate cache and retry once.
+    if (!ok && (status === 404 || status === 410)) {
+      invalidateSession(scopeId, userId);
+      const newSid = await getSessionId(scopeId, userId);
+      await post(epAddMessages(spaceId, newSid), body, 3000);
+    }
+  } catch (e) {
+    if (DEBUG) console.error(`[agentarts] addMessages failed:`, e?.message || e);
+  }
 }
 
 /**
- * Combined search — calls /search_memory/ and /search_summary/, merges into a
- * formatted context string for stdout injection.
+ * Combined search — calls cloud /memories/search and /memories (list),
+ * merges into a formatted context string for stdout injection.
  */
 export async function searchAndFormat(query, scopeId, userId = DEFAULT_USER_ID) {
-  const [memResult, summaryResult] = await Promise.all([
-    postJson(EP_SEARCH_MEMORY, {
+  const spaceId = getSpaceId();
+  if (!spaceId || !getApiKey()) return "";
+
+  const [searchResult, listResult] = await Promise.all([
+    postJson(epSearchMemories(spaceId), {
       query,
-      num: SEARCH_MEM_NUM,
-      user_id: userId,
-      scope_id: scopeId,
-      threshold: DEFAULT_THRESHOLD,
-      plugin_version: PLUGIN_VERSION,
+      top_k: SEARCH_MEM_NUM,
+      min_score: DEFAULT_THRESHOLD,
+      actor_id: userId,
     }),
-    postJson(EP_SEARCH_SUMMARY, {
-      query,
-      num: SEARCH_SUMMARY_NUM,
-      user_id: userId,
-      scope_id: scopeId,
-      threshold: DEFAULT_THRESHOLD,
-      plugin_version: PLUGIN_VERSION,
-    }),
+    getJson(epListMemories(spaceId, Math.max(SEARCH_SUMMARY_NUM * 5, 10), 0), 2000),
   ]);
 
-  const memItems = memResult?.results || [];
-  const summaryItems = summaryResult?.results || [];
-  const lines = [];
+  // Parse search results (handle both "records" and "results" formats)
+  const memItems = [];
+  const rawResults = searchResult?.records || searchResult?.results || [];
+  for (const item of rawResults) {
+    const record = item.record || item;
+    const content = record.content || record.text || record.summary || "";
+    const score = item.score || 0;
+    const type = record.strategy_type || record.memory_type || record.type || "";
+    memItems.push({
+      content: String(content).slice(0, 300),
+      score: Number(score),
+      type,
+    });
+  }
 
+  // Parse list results for summary types
+  const summaryTypes = { summary: true, episodic: true, user_preference: true };
+  const allItems = listResult?.items || [];
+  const summaryItems = [];
+  for (const m of allItems) {
+    const type = m.strategy_type || m.memory_type || m.type || "";
+    if (type in summaryTypes) {
+      summaryItems.push({
+        content: String(m.content || "").slice(0, 300),
+        score: 0,
+        type,
+      });
+    }
+  }
+  const finalSummaryItems = summaryItems.length > 0
+    ? summaryItems
+    : allItems.map(m => ({
+        content: String(m.content || "").slice(0, 300),
+        score: 0,
+        type: m.strategy_type || m.memory_type || m.type || "",
+      }));
+
+  // Format output
+  const lines = [];
   if (memItems.length) {
     lines.push("## Related Memories");
     for (const r of memItems) {
       const label = r.type ? `[${r.type}]` : "";
-      const content = String(r.content || "").slice(0, 300);
-      const score = Number(r.score || 0).toFixed(2);
-      lines.push(`- ${label} ${content} (score: ${score})`);
+      lines.push(`- ${label} ${r.content} (score: ${r.score.toFixed(2)})`);
     }
   }
-  if (summaryItems.length) {
+  if (finalSummaryItems.length) {
     if (lines.length) lines.push("");
     lines.push("## Related History Summaries");
-    for (const r of summaryItems) {
-      const content = String(r.content || "").slice(0, 300);
-      const score = Number(r.score || 0).toFixed(2);
-      lines.push(`- ${content} (score: ${score})`);
+    for (const r of finalSummaryItems.slice(0, SEARCH_SUMMARY_NUM)) {
+      lines.push(`- ${r.content} (score: ${r.score.toFixed(2)})`);
     }
   }
   return lines.join("\n");
 }
 
 export async function healthCheck() {
-  const r = await getJson(EP_HEALTH, 800);
-  return r && r.status === "healthy";
+  return Boolean(getApiKey() && getSpaceId());
 }
 
 // ---------------------------------------------------------------------------
@@ -224,8 +348,7 @@ export function isSdkChildContext(payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Output format — Claude Code / Codex: stdout is plain text.
-// (Cursor JSON support omitted this round; kept extensible.)
+// Output format
 // ---------------------------------------------------------------------------
 export function formatOutput(text, eventType = "generic") {
   return text || "";
@@ -234,11 +357,6 @@ export function formatOutput(text, eventType = "generic") {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
-export function truncate(value, max = MAX_TRUNCATE) {
-  if (typeof value === "string" && value.length > max) return value.slice(0, max) + "\n[...truncated]";
-  return value;
-}
-
 export function coerceText(content) {
   if (!content) return "";
   if (typeof content === "string") return content;

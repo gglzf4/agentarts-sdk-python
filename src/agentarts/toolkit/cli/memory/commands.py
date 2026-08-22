@@ -17,7 +17,6 @@ from agentarts.toolkit.operations.memory import (
 from agentarts.toolkit.utils.common import echo_error, echo_success
 from agentarts.toolkit.plugins.memory.installer.cli import (
     install_cmd,
-    server_app,
     uninstall_cmd,
 )
 
@@ -525,4 +524,3 @@ def space_status_cmd(
 # memory app: `agentarts memory install|uninstall|server`.
 memory_app.command(name="install")(install_cmd)
 memory_app.command(name="uninstall")(uninstall_cmd)
-memory_app.add_typer(server_app, name="server")
