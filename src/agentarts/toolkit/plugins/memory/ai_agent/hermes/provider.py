@@ -29,7 +29,7 @@ PROVIDER_ASSISTANT_ID = "hermes-agent"
 
 # ── system_prompt_block text ──
 SYSTEM_PROMPT_BLOCK = (
-    "## Long-term Memory (AgentArts Memory)\n"
+    "## AgentArts Memory\n"
     "This session provides cross-session cloud memory via Huawei Cloud AgentArts Memory.\n"
     "- Conversation content is automatically written to memory after each turn (non-blocking)\n"
     "- Relevant memories are injected before each LLM call"
@@ -331,7 +331,7 @@ class AgentArtsMemoryProvider:
         result_list = getattr(results, "results", None)
         if not result_list:
             return ""
-        lines = [f"## Retrieved Long-term Memory (query: {query})"]
+        lines = [f"## Retrieved AgentArts Memory (query: {query})"]
         for i, item in enumerate(result_list, 1):
             if isinstance(item, dict):
                 record = item.get("record", {})

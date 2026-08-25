@@ -1102,8 +1102,8 @@ class TestSyncTurnEdgeCases:
         # self._session_id ("aa-sess") wins over the kwarg
         assert call_kwargs["session_id"] == "aa-sess"
 
-    def test_sync_turn_kwarg_fallback_when_self_empty(self, env_vars):
-        """When self._session_id is empty, fall back to the session_id kwarg."""
+    def test_sync_turn_passes_empty_session_id_when_self_empty(self, env_vars):
+        """Empty self._session_id is passed through; kwarg is not a fallback."""
         provider = AgentArtsMemoryProvider()
         mock_sdk = make_mock_sdk()
         mock_client = mock_sdk.MemoryClient.return_value
@@ -1112,14 +1112,14 @@ class TestSyncTurnEdgeCases:
         with patch("provider.import_memory_sdk", return_value=mock_sdk):
             provider.initialize("h-sess", hermes_home="/tmp/h")
 
-        # self._session_id is now "" — kwarg should be used
+        # self._session_id is now "" and is passed through; kwarg is not a fallback
         provider.sync_turn("user", "assistant", session_id="hermes-session-123")
         if provider._sync_thread:
             provider._sync_thread.join(timeout=5.0)
 
         mock_client.add_messages.assert_called_once()
         call_kwargs = mock_client.add_messages.call_args.kwargs
-        assert call_kwargs["session_id"] == "hermes-session-123"
+        assert call_kwargs["session_id"] == ""
 
     def test_sync_multiple_turns(self, env_vars):
         provider = AgentArtsMemoryProvider()
