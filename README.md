@@ -348,11 +348,8 @@ The `agentarts memory` command provides two groups of subcommands.
 
 | Command                          | Description                                                           |
 | -------------------------------- | --------------------------------------------------------------------- |
-| `agentarts memory install`       | Install memory plugin into an AI agent (codex, claude, opencode, hermes, openclaw) |
+| `agentarts memory install`       | Install memory plugin into an AI agent (claude, codex, opencode, hermes) |
 | `agentarts memory uninstall`     | Uninstall memory plugin from an AI agent                              |
-| `agentarts memory server start`  | Start the local memory adapter server (127.0.0.1:8719)                |
-| `agentarts memory server stop`   | Stop the local memory adapter server                                  |
-| `agentarts memory server status` | Check the local adapter server status                                 |
 
 ## Limitations & Requirements
 
