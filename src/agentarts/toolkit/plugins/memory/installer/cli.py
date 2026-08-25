@@ -51,7 +51,7 @@ def _select_scope(platform_name: str, yes: bool) -> str:
 def _degraded_scan(target: str) -> None:
     """Attempt to find and clean up files when manifest is missing."""
     candidates = {
-        "hermes": [expand("~/.hermes/hermes-agent/plugins/memory/agentarts")],
+        "hermes": [expand("~/.hermes/plugins/agentarts")],
         "claude": [
             expand("~/.claude/agentarts-memory"),
             os.path.join(os.getcwd(), ".claude", "agentarts-memory"),

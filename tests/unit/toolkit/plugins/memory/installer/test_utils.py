@@ -311,7 +311,7 @@ class TestAddRemove:
         entry = {
             "platform": "hermes",
             "scope": "global",
-            "config_dir": "/home/x/.hermes/hermes-agent/plugins/memory/agentarts",
+            "config_dir": "/home/x/.hermes/plugins/agentarts",
             "scripts_dir": "",
             "files": ["/path/to/provider.py"],
             "config_files": ["/path/to/agentarts.json"],

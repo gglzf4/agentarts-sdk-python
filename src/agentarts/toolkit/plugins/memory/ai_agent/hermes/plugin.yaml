@@ -1,4 +1,4 @@
-name: agentarts_memory
+name: agentarts
 version: 1.0.0
 description: "Huawei Cloud's AgentArts Memory is a cloud memory provider, offering cross-session memory persistence and retrieval."
 pip_dependencies:

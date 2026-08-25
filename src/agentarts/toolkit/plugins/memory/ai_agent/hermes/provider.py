@@ -24,7 +24,7 @@ DEFAULT_LIST_LIMIT = 10
 SYNC_JOIN_TIMEOUT = 5.0
 
 # ── Provider identity ──
-PROVIDER_NAME = "agentarts_memory"
+PROVIDER_NAME = "agentarts"
 PROVIDER_ASSISTANT_ID = "hermes-agent"
 
 # ── system_prompt_block text ──
@@ -342,7 +342,7 @@ class AgentArtsMemoryProvider:
                 lines.append(f"{i}. {item}")
         return "\n".join(lines) + "\n"
 
-    def sync_turn(self, user_content: str, assistant_content: str) -> None:
+    def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         """Persist each conversation turn to AgentArts Memory (non-blocking)."""
         if not self._client:
             return

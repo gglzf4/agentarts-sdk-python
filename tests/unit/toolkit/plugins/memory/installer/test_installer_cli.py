@@ -91,7 +91,7 @@ class TestEndToEndHermes:
         _set_home_and_creds(monkeypatch, tmp_path)
         assert _do_install("hermes", False, True) == 0
 
-        plugin_dir = expand("~/.hermes/hermes-agent/plugins/memory/agentarts")
+        plugin_dir = expand("~/.hermes/plugins/agentarts")
         assert os.path.isdir(plugin_dir)
         assert os.path.isfile(os.path.join(plugin_dir, "provider.py"))
 
@@ -118,7 +118,7 @@ class TestEndToEndHermes:
         assert _do_uninstall("hermes", True, True) == 0
 
         # Verify cleaned.
-        plugin_dir = expand("~/.hermes/hermes-agent/plugins/memory/agentarts")
+        plugin_dir = expand("~/.hermes/plugins/agentarts")
         assert not os.path.exists(plugin_dir)
         assert find("hermes") is None
 

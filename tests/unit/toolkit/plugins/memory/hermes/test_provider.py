@@ -169,7 +169,7 @@ class TestConstants:
 class TestName:
     def test_name(self):
         provider = AgentArtsMemoryProvider()
-        assert provider.name == "agentarts_memory"
+        assert provider.name == "agentarts"
 
 
 # ── is_available ──
@@ -1087,6 +1087,40 @@ class TestSyncTurnEdgeCases:
 
         mock_client.add_messages.assert_called_once()
 
+    def test_sync_turn_prefers_self_session_id_over_kwarg(self, env_vars):
+        """self._session_id takes priority; kwarg is only a fallback."""
+        provider = AgentArtsMemoryProvider()
+        mock_sdk = make_mock_sdk()
+        mock_client = init_provider(provider, mock_sdk)
+
+        provider.sync_turn("user", "assistant", session_id="hermes-session-123")
+        if provider._sync_thread:
+            provider._sync_thread.join(timeout=5.0)
+
+        mock_client.add_messages.assert_called_once()
+        call_kwargs = mock_client.add_messages.call_args.kwargs
+        # self._session_id ("aa-sess") wins over the kwarg
+        assert call_kwargs["session_id"] == "aa-sess"
+
+    def test_sync_turn_kwarg_fallback_when_self_empty(self, env_vars):
+        """When self._session_id is empty, fall back to the session_id kwarg."""
+        provider = AgentArtsMemoryProvider()
+        mock_sdk = make_mock_sdk()
+        mock_client = mock_sdk.MemoryClient.return_value
+        mock_client.create_memory_session.return_value = MagicMock(id="")
+
+        with patch("provider.import_memory_sdk", return_value=mock_sdk):
+            provider.initialize("h-sess", hermes_home="/tmp/h")
+
+        # self._session_id is now "" — kwarg should be used
+        provider.sync_turn("user", "assistant", session_id="hermes-session-123")
+        if provider._sync_thread:
+            provider._sync_thread.join(timeout=5.0)
+
+        mock_client.add_messages.assert_called_once()
+        call_kwargs = mock_client.add_messages.call_args.kwargs
+        assert call_kwargs["session_id"] == "hermes-session-123"
+
     def test_sync_multiple_turns(self, env_vars):
         provider = AgentArtsMemoryProvider()
         mock_sdk = make_mock_sdk()
@@ -1323,7 +1357,7 @@ class TestRegister:
     def test_register_provider_name(self):
         ctx = _FakeContext()
         register(ctx)
-        assert ctx.providers[0].name == "agentarts_memory"
+        assert ctx.providers[0].name == "agentarts"
 
 
 class TestPackageExports:
@@ -1347,7 +1381,7 @@ class TestPluginYaml:
         plugin_yaml = _plugin_yaml_path()
         data = yaml.safe_load(plugin_yaml.read_text(encoding="utf-8"))
 
-        assert data["name"] == "agentarts_memory"
+        assert data["name"] == "agentarts"
         assert data["version"] == "1.0.0"
         assert "Memory" in data["description"]
 
