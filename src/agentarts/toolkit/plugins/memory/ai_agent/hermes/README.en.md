@@ -1,4 +1,4 @@
-# agentarts-memory-hermes
+# agentarts-hermes
 
 A Hermes Memory Provider plugin that uses Huawei Cloud AgentArts Memory as the cloud memory backend for Hermes Agent.
 
@@ -25,7 +25,7 @@ A Hermes Memory Provider plugin that uses Huawei Cloud AgentArts Memory as the c
 
 ## Installation
 
-Copy the plugin directory `agentarts-memory-hermes` to Hermes' memory provider plugin path and rename it to `agentarts`:
+Copy the plugin directory `hermes` to Hermes' plugin path and rename it to `agentarts`:
 
 ```bash
 cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/agentarts

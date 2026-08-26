@@ -1,4 +1,4 @@
-# agentarts-memory-hermes
+# agentarts-hermes
 
 Hermes Memory Provider 插件，将华为云 AgentArts Memory 作为 Hermes Agent 的云端记忆。
 
@@ -26,7 +26,7 @@ Hermes Memory Provider 插件，将华为云 AgentArts Memory 作为 Hermes Agen
 
 ## 安装
 
-将插件目录agentarts-memory-hermes复制到 Hermes 的 memory provider 插件路径并重命名为agentarts：
+将插件目录hermes复制到 Hermes 的插件路径并重命名为agentarts：
 
 ```bash
 cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/agentarts
