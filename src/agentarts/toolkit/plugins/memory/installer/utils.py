@@ -141,7 +141,10 @@ def write_json_atomic(path: str, data: dict, indent: int = 2) -> None:
 def _command_contains_scripts_dir(hook_entry: dict, scripts_dir: str) -> bool:
     """Check whether a single hook entry's command references *scripts_dir*."""
     cmd = hook_entry.get("command", "")
-    return scripts_dir in cmd
+    # Normalize to forward slashes for cross-platform matching.  Commands are
+    # written with forward slashes (see _load_hooks_template), but scripts_dir
+    # may carry OS-native backslashes on Windows.
+    return scripts_dir.replace("\\", "/") in cmd.replace("\\", "/")
 
 
 def strip_hooks(hooks_obj: dict, scripts_dir: str) -> dict:

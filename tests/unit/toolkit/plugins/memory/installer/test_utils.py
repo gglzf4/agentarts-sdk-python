@@ -904,3 +904,47 @@ class TestEscapeInterrupt:
         monkeypatch.setattr("builtins.input", lambda prompt: "hello")
         result = utils._input_with_esc("prompt: ")
         assert result == "hello"
+
+
+# -- _command_contains_scripts_dir (cross-platform slash matching) --
+
+
+class TestCommandContainsScriptsDir:
+    """Verify mixed-slash matching for hook command lookup.
+
+    On Windows, scripts_dir uses backslashes but commands are written
+    with forward slashes (see _load_hooks_template).  The matching
+    function must normalize both sides before comparing.
+    """
+
+    def test_forward_slash_match(self):
+        entry = {"command": 'node "/home/u/.codex/agentarts-memory/scripts/prompt-submit.mjs"'}
+        assert utils._command_contains_scripts_dir(entry, "/home/u/.codex/agentarts-memory/scripts")
+
+    def test_backslash_scripts_dir_matches_forward_slash_cmd(self):
+        """Windows scripts_dir (backslashes) matches forward-slash command."""
+        entry = {
+            "command": 'node "C:/Users/test/.codex/agentarts-memory/scripts/prompt-submit.mjs"'
+        }
+        win_scripts_dir = r"C:\Users\test\.codex\agentarts-memory\scripts"
+        assert utils._command_contains_scripts_dir(entry, win_scripts_dir)
+
+    def test_backslash_cmd_matches_forward_slash_scripts_dir(self):
+        """Forward-slash scripts_dir matches backslash command (legacy file)."""
+        entry = {
+            "command": r'node "C:\Users\test\.codex\agentarts-memory\scripts\prompt-submit.mjs"'
+        }
+        scripts_dir = "C:/Users/test/.codex/agentarts-memory/scripts"
+        assert utils._command_contains_scripts_dir(entry, scripts_dir)
+
+    def test_no_match_unrelated_command(self):
+        entry = {"command": "echo hello"}
+        assert not utils._command_contains_scripts_dir(
+            entry, "/home/u/.codex/agentarts-memory/scripts"
+        )
+
+    def test_no_match_different_scripts_dir(self):
+        entry = {"command": 'node "/other/path/scripts/prompt-submit.mjs"'}
+        assert not utils._command_contains_scripts_dir(
+            entry, "/home/u/.codex/agentarts-memory/scripts"
+        )

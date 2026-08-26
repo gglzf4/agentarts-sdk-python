@@ -73,7 +73,9 @@ class CodexPlatform(Platform):
         """Read hooks.codex.json template and replace placeholder with absolute path."""
         template_path = codex_hooks_template()
         raw = Path(template_path).read_text(encoding="utf-8")
-        plugin_root = os.path.dirname(scripts_dir)
+        # Normalize to forward slashes so backslashes don't break JSON
+        # parsing on Windows (e.g. C:\Users\... -> C:/Users/...).
+        plugin_root = os.path.dirname(scripts_dir).replace("\\", "/")
         raw = raw.replace(CODEX_PLACEHOLDER, plugin_root)
         return cast(dict, json.loads(strip_json5(raw)))
 

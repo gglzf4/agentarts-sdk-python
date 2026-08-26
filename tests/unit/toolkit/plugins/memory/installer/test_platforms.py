@@ -817,3 +817,99 @@ class TestMcpConfigIntegration:
         if os.path.isfile(json_path):
             config = json.loads(open(json_path).read())
             assert "mcp" not in config or "agentarts_memory" not in config.get("mcp", {})
+
+
+# -- Windows path escaping --
+
+
+class TestWindowsPathEscaping:
+    """On Windows, os.path.dirname returns paths with backslashes.
+
+    These backslashes must be normalized to forward slashes before
+    being substituted into the JSON template text, otherwise
+    json.loads raises JSONDecodeError: Invalid \\escape.
+
+    These tests simulate Windows behavior by monkeypatching
+    os.path.dirname, since on Unix os.path.dirname does not
+    recognize backslashes as path separators.
+    """
+
+    def test_codex_template_windows_path_no_json_error(self, monkeypatch, tmp_path):
+        """_load_hooks_template must not raise on Windows-style paths."""
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.codex.CodexPlatform()
+
+        # On Windows, os.path.dirname returns backslash paths.
+        # Simulate that here so the .replace("\\", "/") fix is exercised.
+        monkeypatch.setattr(
+            "os.path.dirname",
+            lambda _path: r"C:\Users\test\.codex\agentarts-memory",
+        )
+
+        result = p._load_hooks_template("dummy/scripts/path")
+        assert isinstance(result, dict)
+        assert "hooks" in result
+        # Commands must use forward slashes, not backslashes.
+        for event, groups in result["hooks"].items():
+            for group in groups:
+                for hook in group.get("hooks", []):
+                    cmd = hook.get("command", "")
+                    assert "\\" not in cmd
+                    assert "C:/Users/test/.codex/agentarts-memory" in cmd
+
+    def test_claude_template_windows_path_no_json_error(self, monkeypatch, tmp_path):
+        """_load_hooks_template must not raise on Windows-style paths."""
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.claude.ClaudePlatform()
+
+        monkeypatch.setattr(
+            "os.path.dirname",
+            lambda _path: r"C:\Users\test\.claude\agentarts-memory",
+        )
+
+        result = p._load_hooks_template("dummy/scripts/path")
+        assert isinstance(result, dict)
+        assert "hooks" in result
+        for event, groups in result["hooks"].items():
+            for group in groups:
+                for hook in group.get("hooks", []):
+                    cmd = hook.get("command", "")
+                    assert "\\" not in cmd
+                    assert "C:/Users/test/.claude/agentarts-memory" in cmd
+
+    def test_codex_uninstall_with_backslash_scripts_dir(self, monkeypatch, tmp_path):
+        """Uninstall must find our hooks even when scripts_dir has backslashes.
+
+        After install (commands written with forward slashes), the manifest
+        stores scripts_dir with OS-native separators.  On Windows that means
+        backslashes.  The uninstall path must match despite the mismatch.
+        """
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.codex.CodexPlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        hooks_path = os.path.join(result.config_dir, "hooks.json")
+        assert os.path.isfile(hooks_path)
+
+        # Simulate Windows: convert scripts_dir to backslash form.
+        win_scripts_dir = result.scripts_dir.replace("/", "\\")
+        p.uninstall({"config_dir": result.config_dir, "scripts_dir": win_scripts_dir})
+
+        # hooks.json should be gone (our hooks were found and stripped).
+        assert not os.path.exists(hooks_path)
+
+    def test_claude_uninstall_with_backslash_scripts_dir(self, monkeypatch, tmp_path):
+        """Uninstall must find our hooks even when scripts_dir has backslashes."""
+        _set_home(monkeypatch, tmp_path)
+        p = platforms.claude.ClaudePlatform()
+        creds = _make_creds()
+        result = p.install("global", creds, yes=True)
+
+        settings_path = os.path.join(result.config_dir, "settings.json")
+        assert os.path.isfile(settings_path)
+
+        win_scripts_dir = result.scripts_dir.replace("/", "\\")
+        p.uninstall({"config_dir": result.config_dir, "scripts_dir": win_scripts_dir})
+
+        assert not os.path.exists(settings_path)
