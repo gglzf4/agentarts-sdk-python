@@ -17,6 +17,7 @@ from rich.console import Console
 from agentarts.toolkit.utils.common import echo_error, echo_key_value, echo_success, echo_warning
 
 from .platforms import detect_all, get_platform
+from .platforms.hermes import hermes_home
 from .utils import (
     EscapeInterrupt,
     add,
@@ -29,9 +30,11 @@ from .utils import (
     select_one,
     set_yes,
 )
+
 console = Console()
 
 VALID_TARGETS = ("hermes", "claude", "codex", "opencode", "openclaw")
+
 
 def _select_scope(platform_name: str, yes: bool) -> str:
     """Determine install scope (project or global)."""
@@ -51,7 +54,7 @@ def _select_scope(platform_name: str, yes: bool) -> str:
 def _degraded_scan(target: str) -> None:
     """Attempt to find and clean up files when manifest is missing."""
     candidates = {
-        "hermes": [expand("~/.hermes/plugins/agentarts")],
+        "hermes": [expand(os.path.join(hermes_home(), "plugins", "agentarts"))],
         "claude": [
             expand("~/.claude/agentarts-memory"),
             os.path.join(os.getcwd(), ".claude", "agentarts-memory"),

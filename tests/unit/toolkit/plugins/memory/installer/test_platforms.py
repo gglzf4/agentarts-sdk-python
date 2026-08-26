@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 from agentarts.toolkit.plugins.memory.installer import platforms
 from agentarts.toolkit.plugins.memory.installer.platforms import PLATFORMS, detect_all, get_platform
-from agentarts.toolkit.plugins.memory.installer.platforms.hermes import HermesPlatform
+from agentarts.toolkit.plugins.memory.installer.platforms.hermes import HermesPlatform, hermes_home
 from agentarts.toolkit.plugins.memory.installer.utils import (
     ENV_API_KEY,
     ENV_REGION,
@@ -167,6 +168,143 @@ class TestHermesRoundTrip:
         os.makedirs(expand("~/.hermes"))
         p = HermesPlatform()
         assert p.detect() is True
+
+
+# ── Hermes home resolution ──────────────────────────────────────────
+
+
+class TestHermesHomeResolution:
+    """Tests for dynamic Hermes home directory resolution.
+
+    On Windows native, Hermes stores data at %LOCALAPPDATA%\\hermes (not
+    ~/.hermes) and sets HERMES_HOME accordingly.  The resolver must follow
+    that convention or detect() silently misses an installed Hermes.
+    """
+
+    def test_default_fallback(self, monkeypatch, tmp_path):
+        """Without HERMES_HOME or Windows env, returns ~/.hermes."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert hermes_home() == "~/.hermes"
+
+    def test_hermes_home_env_var(self, monkeypatch, tmp_path):
+        """HERMES_HOME env var takes top priority."""
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert hermes_home() == custom
+
+    def test_hermes_home_env_overrides_windows(self, monkeypatch, tmp_path):
+        """HERMES_HOME wins even on Windows."""
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert hermes_home() == custom
+
+    def test_windows_localappdata(self, monkeypatch, tmp_path):
+        """On Windows without HERMES_HOME, uses %LOCALAPPDATA%\\hermes."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(sys, "platform", "win32")
+        expected = os.path.join(str(tmp_path), "hermes")
+        assert hermes_home() == expected
+
+    def test_windows_no_localappdata_falls_back(self, monkeypatch, tmp_path):
+        """On Windows without LOCALAPPDATA, falls back to ~/.hermes."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert hermes_home() == "~/.hermes"
+
+    def test_detect_with_hermes_home_env(self, monkeypatch, tmp_path):
+        """detect() finds Hermes when HERMES_HOME points to a real dir."""
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setattr(sys, "platform", "linux")
+        os.makedirs(custom)
+        p = HermesPlatform()
+        assert p.detect() is True
+
+    def test_detect_windows_localappdata(self, monkeypatch, tmp_path):
+        """detect() finds Hermes at %LOCALAPPDATA%\\hermes on Windows."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(sys, "platform", "win32")
+        os.makedirs(os.path.join(str(tmp_path), "hermes"))
+        p = HermesPlatform()
+        assert p.detect() is True
+
+    def test_detect_windows_ignores_userprofile_dot_hermes(self, monkeypatch, tmp_path):
+        """On Windows native, ~/.hermes is the wrong path — must not match."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(sys, "platform", "win32")
+        os.makedirs(expand("~/.hermes"))
+        p = HermesPlatform()
+        assert p.detect() is False
+
+    def test_install_uses_hermes_home_env(self, monkeypatch, tmp_path):
+        """install() deploys to HERMES_HOME, not ~/.hermes."""
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setattr(sys, "platform", "linux")
+        creds = _make_creds()
+        p = HermesPlatform()
+        result = p.install("global", creds, yes=True)
+
+        plugin_dir = os.path.join(custom, "plugins", "agentarts")
+        assert os.path.isdir(plugin_dir)
+        assert result.config_dir == plugin_dir
+        assert os.path.isfile(os.path.join(custom, ".env"))
+        assert os.path.isfile(os.path.join(custom, "config.yaml"))
+
+    def test_install_windows_localappdata(self, monkeypatch, tmp_path):
+        """install() deploys to %LOCALAPPDATA%\\hermes on Windows."""
+        _set_home(monkeypatch, tmp_path)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(sys, "platform", "win32")
+        creds = _make_creds()
+        p = HermesPlatform()
+        result = p.install("global", creds, yes=True)
+
+        plugin_dir = os.path.join(str(tmp_path), "hermes", "plugins", "agentarts")
+        assert os.path.isdir(plugin_dir)
+        assert result.config_dir == plugin_dir
+        assert os.path.isfile(os.path.join(str(tmp_path), "hermes", ".env"))
+        assert os.path.isfile(os.path.join(str(tmp_path), "hermes", "config.yaml"))
+
+    def test_config_dir_follows_hermes_home(self, monkeypatch, tmp_path):
+        """config_dir() returns the path under the resolved hermes home."""
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setattr(sys, "platform", "linux")
+        p = HermesPlatform()
+        assert p.config_dir("global") == os.path.join(custom, "plugins", "agentarts")
+
+    def test_degraded_scan_uses_hermes_home(self, monkeypatch, tmp_path):
+        """_degraded_scan looks in the resolved hermes home, not just ~/.hermes."""
+        from agentarts.toolkit.plugins.memory.installer.cli import _degraded_scan
+
+        _set_home(monkeypatch, tmp_path)
+        custom = os.path.join(str(tmp_path), "custom-hermes")
+        monkeypatch.setenv("HERMES_HOME", custom)
+        monkeypatch.setattr(sys, "platform", "linux")
+        os.makedirs(os.path.join(custom, "plugins", "agentarts"))
+
+        _degraded_scan("hermes")
 
 
 # ── Hermes + manifest integration ─────────────────────────────────────
