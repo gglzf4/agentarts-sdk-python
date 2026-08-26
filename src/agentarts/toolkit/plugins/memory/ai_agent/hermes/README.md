@@ -29,7 +29,7 @@ Hermes Memory Provider 插件，将华为云 AgentArts Memory 作为 Hermes Agen
 将插件目录agentarts-memory-hermes复制到 Hermes 的 memory provider 插件路径并重命名为agentarts：
 
 ```bash
-cp -r agentarts-memory-hermes  ~/.hermes/hermes-agent/plugins/memory/agentarts
+cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/agentarts
 ```
 
 

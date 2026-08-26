@@ -28,7 +28,7 @@ A Hermes Memory Provider plugin that uses Huawei Cloud AgentArts Memory as the c
 Copy the plugin directory `agentarts-memory-hermes` to Hermes' memory provider plugin path and rename it to `agentarts`:
 
 ```bash
-cp -r agentarts-memory-hermes  ~/.hermes/hermes-agent/plugins/memory/agentarts
+cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/agentarts
 ```
 
 ## Configuration
@@ -109,11 +109,11 @@ Huawei Cloud AgentArts Memory is a cloud-based memory solution for AI agents, pr
 
 ### Advantages of AgentArts Memory
 
-1. **Out of the box**: Supports both short-term memory (7–365 days) and long-term memory (persistent storage), meeting different time-span memory requirements.
+1. **Out of the box**: Short-term + long-term memory — supports both short-term memory (7–365 days) and long-term memory (persistent storage), meeting different time-span memory requirements.
 
 2. **Multiple memory strategies**: Supports strategies such as semantic memory, user preferences, session summaries, and episodic memory to meet various scenario needs.
 
-3. **Multi-dimensional isolation**: Supports memory isolation by space, session, and user dimension, ensuring data security and independence.
+3. **Multi-dimensional isolation**: Isolation by strategy type — supports memory isolation by space, session, and user dimension, ensuring data security and independence.
 
 4. **Fully managed, zero maintenance**: Fully managed on the cloud — no need to manage databases or memory processing engines, enabling fast business launch and reducing operational costs and complexity.
 

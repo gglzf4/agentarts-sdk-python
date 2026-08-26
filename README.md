@@ -34,15 +34,24 @@ agentarts-sdk-python/
 │   └── toolkit/                # CLI toolkit
 │       ├── cli/                # Command-line interface
 │       ├── operations/         # CLI operation handlers
-│       ├── plugins/memory/     # Memory plugins (ai_agent, server, installer)
-│       └── utils/templates/    # Project templates
+│       ├── plugins/memory/    # Memory plugins
+│       │   ├── ai_agent/      # Platform assets (claude_code, codex, opencode, hermes)
+│       │   ├── installer/     # Unified installer
+│       │   ├── mcp/           # MCP server (local adapter)
+│       │   └── resources/     # Manifests + shared hook scripts
+│       └── utils/             # Utilities
+│           ├── runtime/       # Runtime utilities
+│           └── templates/     # Project templates
 ├── docs/                       # Documentation
 │   └── cn/                     # Chinese documentation
 │       ├── sdk_user_guide/     # SDK usage guides
 │       └── toolkit_user_guide/ # CLI usage guides
+├── examples/                   # Example projects
 └── tests/                      # Test suites
     ├── unit/                   # Unit tests mirroring src/ tree
-    │   └── toolkit/plugins/memory/  # Memory plugin tests
+    │   ├── sdk/                # SDK tests
+    │   └── toolkit/            # Toolkit tests
+    │       └── plugins/memory/ # Memory plugin tests
     └── integration/            # Integration tests
 ```
 
