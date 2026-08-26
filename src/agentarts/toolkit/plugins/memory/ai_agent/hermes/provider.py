@@ -38,22 +38,20 @@ SYSTEM_PROMPT_BLOCK = (
     "- Use the ltm_search_summary tool to view memory summaries\n"
 )
 
-# ── Config: non-secret keys written to agentarts.json ──
-_NON_SECRET_KEYS = frozenset({"space_id", "region"})
 
 CONFIG_SCHEMA: list[dict[str, Any]] = [
+    {
+        "key": "space_id",
+        "description": "Huawei Cloud AgentArts Memory Space ID",
+        "required": True,
+        "env_var": ENV_SPACE_ID,
+    },
     {
         "key": "api_key",
         "description": "Huawei Cloud AgentArts Memory API Key",
         "secret": True,
         "required": True,
         "env_var": ENV_API_KEY,
-    },
-    {
-        "key": "space_id",
-        "description": "Huawei Cloud AgentArts Memory Space ID",
-        "required": True,
-        "env_var": ENV_SPACE_ID,
     },
     {
         "key": "region",
@@ -65,15 +63,41 @@ CONFIG_SCHEMA: list[dict[str, Any]] = [
 
 
 def save_config(values: dict[str, Any], hermes_home: str) -> None:
-    """Write non-secret config values to agentarts.json.
+    """Write non-secret config values (space_id, region) to .env.
 
-    Secret fields (api_key) are handled by Hermes and written to .env.
-    Only non-secret fields (space_id, region) are persisted to the JSON file.
+    Secret fields (api_key) are handled by Hermes and written to .env
+    directly.  Non-secret fields are persisted here to the same .env file
+    using their env_var names.
     """
-    non_secret = {k: v for k, v in values.items() if k in _NON_SECRET_KEYS}
-    config_path = Path(hermes_home) / "agentarts.json"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(non_secret, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Map non-secret field keys to env_var names.
+    key_to_env = {f["key"]: f["env_var"] for f in CONFIG_SCHEMA if not f.get("secret")}
+    entries = {key_to_env[k]: str(v) for k, v in values.items() if k in key_to_env and v}
+    if not entries:
+        return
+
+    env_path = Path(hermes_home) / ".env"
+
+    # Read existing .env content (dedup by key).
+    existing: dict[str, str] = {}
+    other_lines: list[str] = []
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                existing[k.strip()] = v
+            else:
+                other_lines.append(line)
+
+    existing.update(entries)
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = list(other_lines)
+    for k, v in existing.items():
+        lines.append(f"{k}={v}")
+
+    tmp = env_path.with_suffix(env_path.suffix + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, env_path)
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [

@@ -96,58 +96,63 @@ class TestConfigSchema:
 
 
 class TestSaveConfig:
-    def test_writes_non_secret_fields(self, tmp_path):
+    def test_writes_non_secret_fields_to_env(self, tmp_path):
         values = {
             "api_key": "secret-key",
-            "ak": "my-ak",
-            "sk": "my-sk",
             "space_id": "space-123",
             "region": "cn-north-4",
         }
         save_config(values, str(tmp_path))
 
-        config_path = tmp_path / "agentarts.json"
-        assert config_path.exists()
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        assert data == {"space_id": "space-123", "region": "cn-north-4"}
+        env_path = tmp_path / ".env"
+        assert env_path.exists()
+        content = env_path.read_text(encoding="utf-8")
+        assert "AGENTARTS_MEMORY_SPACE_ID=space-123" in content
+        assert "HUAWEICLOUD_SDK_REGION=cn-north-4" in content
 
-    def test_secrets_not_written_to_json(self, tmp_path):
+    def test_secrets_not_written_by_save_config(self, tmp_path):
         values = {
             "api_key": "secret-key",
-            "ak": "my-ak",
-            "sk": "my-sk",
             "space_id": "space-123",
         }
         save_config(values, str(tmp_path))
 
-        config_path = tmp_path / "agentarts.json"
-        content = config_path.read_text(encoding="utf-8")
+        env_path = tmp_path / ".env"
+        content = env_path.read_text(encoding="utf-8")
         assert "secret-key" not in content
-        assert "my-ak" not in content
-        assert "my-sk" not in content
 
     def test_partial_values(self, tmp_path):
         save_config({"region": "cn-east-3"}, str(tmp_path))
 
-        config_path = tmp_path / "agentarts.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        assert data == {"region": "cn-east-3"}
+        env_path = tmp_path / ".env"
+        content = env_path.read_text(encoding="utf-8")
+        assert "HUAWEICLOUD_SDK_REGION=cn-east-3" in content
 
     def test_creates_parent_dir(self, tmp_path):
         nested = tmp_path / "nested" / "path"
         save_config({"space_id": "s1"}, str(nested))
 
-        config_path = nested / "agentarts.json"
-        assert config_path.exists()
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        assert data == {"space_id": "s1"}
+        env_path = nested / ".env"
+        assert env_path.exists()
+        content = env_path.read_text(encoding="utf-8")
+        assert "AGENTARTS_MEMORY_SPACE_ID=s1" in content
+
+    def test_merges_with_existing_env(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("HUAWEICLOUD_SDK_MEMORY_API_KEY=existing-key\n", encoding="utf-8")
+
+        save_config({"space_id": "space-123", "region": "cn-north-4"}, str(tmp_path))
+
+        content = env_path.read_text(encoding="utf-8")
+        assert "HUAWEICLOUD_SDK_MEMORY_API_KEY=existing-key" in content
+        assert "AGENTARTS_MEMORY_SPACE_ID=space-123" in content
+        assert "HUAWEICLOUD_SDK_REGION=cn-north-4" in content
 
     def test_empty_values(self, tmp_path):
         save_config({}, str(tmp_path))
 
-        config_path = tmp_path / "agentarts.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        assert data == {}
+        env_path = tmp_path / ".env"
+        assert not env_path.exists()
 
 
 # ── Constants ──
@@ -280,9 +285,12 @@ class TestConfigMethods:
     def test_save_config(self, tmp_path):
         provider = AgentArtsMemoryProvider()
         provider.save_config({"space_id": "s1", "region": "r1", "api_key": "secret"}, str(tmp_path))
-        config_path = tmp_path / "agentarts.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        assert data == {"space_id": "s1", "region": "r1"}
+        env_path = tmp_path / ".env"
+        content = env_path.read_text(encoding="utf-8")
+        assert "AGENTARTS_MEMORY_SPACE_ID=s1" in content
+        assert "HUAWEICLOUD_SDK_REGION=r1" in content
+        # api_key is secret, not written by save_config
+        assert "secret" not in content
 
 
 # ── Tool methods (stub phase) ──

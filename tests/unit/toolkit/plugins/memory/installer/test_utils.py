@@ -258,6 +258,60 @@ class TestEnsureCredentials:
         assert ENV_SPACE_ID in cfg
 
 
+class TestEnsureCredentialsRegionPrompt:
+    def test_region_prompted_when_unset_interactive(self, monkeypatch):
+        """In interactive mode, region is prompted (with default) when unset."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.delenv(ENV_REGION, raising=False)
+
+        calls = []
+
+        def fake_prompt_input(prompt, default=""):
+            calls.append({"prompt": prompt, "default": default})
+            return default
+
+        monkeypatch.setattr(utils, "prompt_input", fake_prompt_input)
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: False)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        cfg = ensure_credentials(yes=False)
+
+        assert cfg[ENV_REGION] == DEFAULT_REGION
+        assert any(c["default"] == DEFAULT_REGION for c in calls)
+
+    def test_region_not_prompted_when_set_in_env(self, monkeypatch):
+        """When region is already set in env, it is not prompted."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        def fail_prompt(*a, **k):
+            raise AssertionError("prompt_input should not be called")
+
+        monkeypatch.setattr(utils, "prompt_input", fail_prompt)
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: False)
+
+        cfg = ensure_credentials(yes=False)
+
+        assert cfg[ENV_REGION] == "cn-north-4"
+
+    def test_region_not_prompted_in_yes_mode(self, monkeypatch):
+        """In --yes mode, region is never prompted (uses default)."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.delenv(ENV_REGION, raising=False)
+
+        def fail_prompt(*a, **k):
+            raise AssertionError("prompt_input should not be called in --yes mode")
+
+        monkeypatch.setattr(utils, "prompt_input", fail_prompt)
+
+        cfg = ensure_credentials(yes=True)
+
+        assert cfg[ENV_REGION] == DEFAULT_REGION
+
+
 # ── Shell rc helpers ─────────────────────────────────────────────────
 
 

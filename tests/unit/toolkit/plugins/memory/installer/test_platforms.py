@@ -82,19 +82,16 @@ class TestHermesRoundTrip:
         assert "__init__.py" in files
         assert len(result.files) == 3
 
-        # .env written.
+        # .env written with all credentials.
         env_path = expand("~/.hermes/.env")
         assert os.path.isfile(env_path)
         env_content = open(env_path).read()
         assert ENV_API_KEY in env_content
         assert "test-api-key-abcdef-123456" in env_content
-
-        # agentarts.json written.
-        config_path = expand("~/.hermes/agentarts.json")
-        assert os.path.isfile(config_path)
-        config = json.loads(open(config_path).read())
-        assert config["space_id"] == "test-space-12345"
-        assert config["region"] == "cn-north-4"
+        assert ENV_SPACE_ID in env_content
+        assert "test-space-12345" in env_content
+        assert ENV_REGION in env_content
+        assert "cn-north-4" in env_content
 
         # config.yaml has memory provider activated.
         config_yaml_path = expand("~/.hermes/config.yaml")
@@ -106,7 +103,6 @@ class TestHermesRoundTrip:
         # InstallResult.
         assert result.config_dir == plugin_dir
         assert env_path in result.config_files
-        assert config_path in result.config_files
 
     def test_uninstall_cleans_everything(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -120,17 +116,14 @@ class TestHermesRoundTrip:
         plugin_dir = expand("~/.hermes/plugins/agentarts")
         assert os.path.isdir(plugin_dir)
         assert os.path.isfile(expand("~/.hermes/.env"))
-        assert os.path.isfile(expand("~/.hermes/agentarts.json"))
 
         # Uninstall.
         p.uninstall({})
 
         # Plugin dir gone.
         assert not os.path.exists(plugin_dir)
-        # .env gone (we only had the API key, so file removed).
+        # .env gone (all keys stripped, so file removed).
         assert not os.path.exists(expand("~/.hermes/.env"))
-        # agentarts.json gone.
-        assert not os.path.exists(expand("~/.hermes/agentarts.json"))
 
         # config.yaml memory provider deactivated (empty string).
         config_yaml_path = expand("~/.hermes/config.yaml")
@@ -152,9 +145,11 @@ class TestHermesRoundTrip:
         # Should still be exactly 3 files, not duplicated.
         assert len([f for f in files if f.endswith(".py") or f.endswith(".yaml")]) == 3
 
-        # .env should have one API key line, not two.
+        # .env should have one entry per key, not duplicated.
         env_content = open(expand("~/.hermes/.env")).read()
         assert env_content.count(ENV_API_KEY) == 1
+        assert env_content.count(ENV_SPACE_ID) == 1
+        assert env_content.count(ENV_REGION) == 1
 
     def test_config_dir_always_plugin_dir(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -606,7 +601,10 @@ class TestMcpConfigIntegration:
         assert "mcpServers" in settings
         assert "agentarts_memory" in settings["mcpServers"]
         assert settings["mcpServers"]["agentarts_memory"]["command"] == "python3"
-        assert settings["mcpServers"]["agentarts_memory"]["env"]["AGENTARTS_MEMORY_PLATFORM"] == "claude-code"
+        assert (
+            settings["mcpServers"]["agentarts_memory"]["env"]["AGENTARTS_MEMORY_PLATFORM"]
+            == "claude-code"
+        )
 
     def test_claude_uninstall_removes_mcp_config(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -619,7 +617,9 @@ class TestMcpConfigIntegration:
         settings_path = os.path.join(result.config_dir, "settings.json")
         if os.path.isfile(settings_path):
             settings = json.loads(open(settings_path).read())
-            assert "mcpServers" not in settings or "agentarts_memory" not in settings.get("mcpServers", {})
+            assert "mcpServers" not in settings or "agentarts_memory" not in settings.get(
+                "mcpServers", {}
+            )
 
     def test_codex_install_writes_mcp_config(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)
@@ -632,7 +632,9 @@ class TestMcpConfigIntegration:
         assert "[mcp_servers.agentarts_memory]" in toml_content
         assert 'command = "python3"' in toml_content
         assert "AGENTARTS_MEMORY_PLATFORM" in toml_content
-        assert '"claude-code"' not in toml_content or '"codex"' not in toml_content or True  # platform is in env section
+        assert (
+            '"claude-code"' not in toml_content or '"codex"' not in toml_content or True
+        )  # platform is in env section
         # Codex TOML format: key = "value" inside [mcp_servers.agentarts_memory.env]
         assert 'AGENTARTS_MEMORY_PLATFORM = "codex"' in toml_content
 
@@ -660,7 +662,10 @@ class TestMcpConfigIntegration:
         assert "mcp" in config
         assert "agentarts_memory" in config["mcp"]
         assert config["mcp"]["agentarts_memory"]["type"] == "local"
-        assert config["mcp"]["agentarts_memory"]["environment"]["AGENTARTS_MEMORY_PLATFORM"] == "opencode"
+        assert (
+            config["mcp"]["agentarts_memory"]["environment"]["AGENTARTS_MEMORY_PLATFORM"]
+            == "opencode"
+        )
 
     def test_opencode_uninstall_removes_mcp_config(self, monkeypatch, tmp_path):
         _set_home(monkeypatch, tmp_path)

@@ -354,7 +354,9 @@ def set_yaml_key(path: str, section: str, key: str, value: str) -> None:
 # ── MCP server config helpers ──────────────────────────────────────
 
 
-def merge_mcp_servers(settings: dict, name: str, command: str, args: list[str], env: dict[str, str]) -> dict:
+def merge_mcp_servers(
+    settings: dict, name: str, command: str, args: list[str], env: dict[str, str]
+) -> dict:
     """Merge an MCP server entry into settings dict (for Claude Code settings.json).
 
     Idempotent: strips existing entry with same name first.
@@ -381,7 +383,9 @@ def strip_mcp_servers(settings: dict, name: str) -> dict:
     return result
 
 
-def merge_toml_mcp_server(text: str, name: str, command: str, args: list[str], env: dict[str, str]) -> str:
+def merge_toml_mcp_server(
+    text: str, name: str, command: str, args: list[str], env: dict[str, str]
+) -> str:
     """Ensure config.toml contains [mcp_servers.{name}] section.
 
     Works at the text level (no toml library). Idempotent: removes existing
@@ -493,8 +497,6 @@ def build_mcp_env(creds: dict, platform_name: str = "") -> dict[str, str]:
     if creds.get(ENV_REGION):
         env[ENV_REGION] = creds[ENV_REGION]
     return env
- 
- 
 
 
 def write_env_file(path: str, entries: dict[str, str]) -> None:
@@ -1079,6 +1081,11 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
             if not config.get(var):
                 console.print(f"  {var}")
         return config
+
+    # Region has a default (cn-southwest-2); confirm it interactively when not
+    # already set in the environment, so the user can accept or override it.
+    if not yes and not os.getenv(ENV_REGION, ""):
+        config.update(interactive_fill([ENV_REGION], yes))
 
     # Optional: write to shell rc.
     if not yes:

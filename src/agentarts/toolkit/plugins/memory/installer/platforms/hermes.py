@@ -3,23 +3,18 @@
 Deploys the hermes memory provider (provider.py, plugin.yaml, __init__.py)
 to ``~/.hermes/plugins/agentarts/``.
 
-Credentials:
-  - API Key → ``~/.hermes/.env`` (deduped by key)
-  - space_id, region → ``~/.hermes/agentarts.json``
-
-Hermes does NOT depend on the local adapter server (provider connects
-to the cloud SDK directly).
+All credentials (API Key, space_id, region) are written to ``~/.hermes/.env``
+(deduped by key). Hermes does NOT depend on the local adapter server
+(provider connects to the cloud SDK directly).
 """
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from pathlib import Path
 
 from ..utils import (
-    DEFAULT_REGION,
     ENV_API_KEY,
     ENV_REGION,
     ENV_SPACE_ID,
@@ -37,7 +32,6 @@ from .base import InstallResult, Platform
 HERMES_HOME = "~/.hermes"
 PLUGIN_DIR = "~/.hermes/plugins/agentarts"
 ENV_FILE = "~/.hermes/.env"
-CONFIG_FILE = "~/.hermes/agentarts.json"
 CONFIG_YAML = "~/.hermes/config.yaml"
 
 
@@ -56,7 +50,6 @@ class HermesPlatform(Platform):
     def install(self, scope: str, creds: dict, yes: bool) -> InstallResult:
         plugin_dir = expand(PLUGIN_DIR)
         env_path = expand(ENV_FILE)
-        config_path = expand(CONFIG_FILE)
 
         # Phase 1: Deploy plugin files.
         src_files = hermes_files()
@@ -68,32 +61,21 @@ class HermesPlatform(Platform):
             deployed.append(dst)
             status_ok(f"Deploy {os.path.basename(src)}", dst)
 
-        # Phase 2: Write .env (API key).
-        api_key = creds.get(ENV_API_KEY, "")
-        if api_key:
-            write_env_file(env_path, {ENV_API_KEY: api_key})
+        # Phase 2: Write .env (API key, space_id, region).
+        env_entries = {var: creds.get(var, "") for var in (ENV_API_KEY, ENV_SPACE_ID, ENV_REGION)}
+        env_entries = {k: v for k, v in env_entries.items() if v}
+        if env_entries:
+            write_env_file(env_path, env_entries)
             status_ok("Write .env", env_path)
         else:
-            status_err("Write .env", "API key missing in credentials")
+            status_err("Write .env", "Credentials missing")
 
-        # Phase 3: Write agentarts.json (space_id, region).
-        config_data = {
-            "space_id": creds.get(ENV_SPACE_ID, ""),
-            "region": creds.get(ENV_REGION, DEFAULT_REGION),
-        }
-        Path(config_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(config_path).write_text(
-            json.dumps(config_data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        status_ok("Write agentarts.json", config_path)
-
-        # Phase 4: Activate hermes memory provider in config.yaml.
+        # Phase 3: Activate hermes memory provider in config.yaml.
         config_yaml_path = expand(CONFIG_YAML)
         set_yaml_key(config_yaml_path, "memory", "provider", "agentarts")
         status_ok("Activate memory provider", config_yaml_path)
 
-        config_files = [env_path, config_path, config_yaml_path]
+        config_files = [env_path, config_yaml_path]
         return InstallResult(
             config_dir=plugin_dir,
             scripts_dir="",
@@ -104,7 +86,6 @@ class HermesPlatform(Platform):
     def uninstall(self, entry: dict) -> None:
         plugin_dir = expand(PLUGIN_DIR)
         env_path = expand(ENV_FILE)
-        config_path = expand(CONFIG_FILE)
 
         # Phase 1: Remove plugin directory.
         p = Path(plugin_dir)
@@ -121,17 +102,11 @@ class HermesPlatform(Platform):
                 except OSError:
                     break
 
-        # Phase 2: Strip API key from .env.
-        strip_env_keys(env_path, [ENV_API_KEY])
+        # Phase 2: Strip env keys from .env.
+        strip_env_keys(env_path, [ENV_API_KEY, ENV_SPACE_ID, ENV_REGION])
         status_ok("Strip .env", env_path)
 
-        # Phase 3: Remove agentarts.json.
-        c = Path(config_path)
-        if c.exists():
-            c.unlink()
-            status_ok("Remove agentarts.json", config_path)
-
-        # Phase 4: Deactivate hermes memory provider in config.yaml.
+        # Phase 3: Deactivate hermes memory provider in config.yaml.
         config_yaml_path = expand(CONFIG_YAML)
         set_yaml_key(config_yaml_path, "memory", "provider", "")
         status_ok("Deactivate memory provider", config_yaml_path)
