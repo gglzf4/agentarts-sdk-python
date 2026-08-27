@@ -974,9 +974,9 @@ VALIDATORS: dict[str, Callable[[str], tuple[bool, str]]] = {
 }
 
 VAR_DESCRIPTIONS: dict[str, str] = {
-    ENV_SPACE_ID: "AgentArts Memory Space ID",
-    ENV_API_KEY: "AgentArts Memory API Key",
-    ENV_REGION: "AgentArts Memory Region",
+    ENV_SPACE_ID: "Huawei Cloud AgentArts Memory Space ID",
+    ENV_API_KEY: "Huawei Cloud AgentArts Memory API Key",
+    ENV_REGION: "Huawei Cloud AgentArts Memory Region",
 }
 
 
@@ -1015,26 +1015,39 @@ def _mask(value: str, var_name: str) -> str:
     if not value:
         return ""
     if "API_KEY" in var_name or "SECRET" in var_name or "SK" in var_name:
-        return "*" * min(len(value), 8)
-    if len(value) <= 8:
-        return value
-    return f"{value[:4]}...{value[-4:]}"
+        return _mask_api_key(value)
+    # Non-sensitive values (Space ID, Region) are shown in full.
+    return value
+
+
+def _mask_api_key(value: str) -> str:
+    """Mask an API key for display: first 6 + *** + last 4 chars."""
+    if not value:
+        return ""
+    if len(value) <= 10:
+        return "*" * len(value)
+    return value[:6] + "***" + value[-4:]
 
 
 # ── Interactive fill ─────────────────────────────────────────────────
 
 
-def interactive_fill(missing: list[str], yes: bool) -> dict[str, str]:
+def interactive_fill(
+    missing: list[str], yes: bool, defaults: dict[str, str] | None = None
+) -> dict[str, str]:
     """Interactively prompt for each missing variable.
 
     In ``--yes`` mode, returns defaults (empty strings) without prompting.
+    Pass *defaults* to override the built-in default for each variable
+    (e.g. when re-prompting with existing env values as defaults).
     """
     filled: dict[str, str] = {}
+    defaults = defaults or {}
 
     for var in missing:
         desc = VAR_DESCRIPTIONS.get(var, var)
         is_optional = var in OPTIONAL_VARS
-        default = DEFAULT_REGION if is_optional else ""
+        default = defaults.get(var, DEFAULT_REGION if is_optional else "")
         validator = VALIDATORS.get(var)
 
         if yes:
@@ -1073,10 +1086,14 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
     """Ensure all required credentials are available.
 
     1. Check environment variables.
-    2. Prompt interactively for missing ones (skipped in --yes mode).
-    3. Optionally write to shell rc for persistence.
+    2. If all exist: display them and ask whether to use or override.
+    3. If some missing: prompt for missing ones.
+    4. Only prompt for shell rc persistence if values changed.
     """
     all_ok, config = check_env()
+
+    # Snapshot of original env values for change detection.
+    original_env = {v: os.getenv(v, "") for v in (ENV_SPACE_ID, ENV_API_KEY, ENV_REGION)}
 
     if not all_ok:
         missing = [v for v in REQUIRED_VARS if v not in config]
@@ -1091,13 +1108,49 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
                 console.print(f"  {var}")
         return config
 
-    # Region has a default (cn-southwest-2); confirm it interactively when not
-    # already set in the environment, so the user can accept or override it.
+    # Region has a default; if not set in env, prompt for it.
     if not yes and not os.getenv(ENV_REGION, ""):
         config.update(interactive_fill([ENV_REGION], yes))
 
-    # Optional: write to shell rc.
-    if not yes:
+    # Determine whether any values changed from the original env.
+    changed = False
+    all_env_present = all(original_env[v] for v in (ENV_SPACE_ID, ENV_API_KEY, ENV_REGION))
+
+    if not yes and all_env_present:
+        # All three vars exist in environment -- show and confirm.
+        console.print("\nExisting configuration found:")
+        for var in (ENV_API_KEY, ENV_SPACE_ID, ENV_REGION):
+            value = original_env[var]
+            desc = VAR_DESCRIPTIONS.get(var, var)
+            if var == ENV_API_KEY:
+                display = _mask_api_key(value)
+            else:
+                display = value
+            console.print(f"  {desc}: {display}")
+
+        if confirm("Use existing configuration?", default=True):
+            # User accepts existing values -- nothing changed.
+            pass
+        else:
+            # User wants to override -- prompt for all three with
+            # existing values as defaults so Enter keeps the current value.
+            config.update(
+                interactive_fill(
+                    list(REQUIRED_VARS) + [ENV_REGION],
+                    yes=False,
+                    defaults=original_env,
+                )
+            )
+            for var in (ENV_SPACE_ID, ENV_API_KEY, ENV_REGION):
+                if config.get(var, "") != original_env[var]:
+                    changed = True
+                    break
+    elif not all_env_present:
+        # Some vars were missing from env and were just filled.
+        changed = True
+
+    # Only prompt for shell rc if something changed.
+    if not yes and changed:
         if sys.platform == "win32":
             rc_label = "user environment"
             apply_hint = "Restart terminal to apply."
@@ -1108,10 +1161,6 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
             write_shell_rc(config)
             console.print(f"  [green]\u221a[/green] Configuration saved to {rc_label}")
             console.print(f"  {apply_hint}")
-    elif all_ok:
-        # In --yes mode, persist if we filled anything interactively (no-op if
-        # everything came from env).
-        pass
 
     return config
 

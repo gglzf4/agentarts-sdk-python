@@ -50,6 +50,7 @@ from agentarts.toolkit.plugins.memory.installer.utils import (
     write_env_file,
     write_json_atomic,
     write_shell_rc,
+    _mask_api_key,
 )
 
 
@@ -291,7 +292,8 @@ class TestEnsureCredentialsRegionPrompt:
             raise AssertionError("prompt_input should not be called")
 
         monkeypatch.setattr(utils, "prompt_input", fail_prompt)
-        monkeypatch.setattr(utils, "confirm", lambda *a, **k: False)
+        # User accepts existing configuration.
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: True)
 
         cfg = ensure_credentials(yes=False)
 
@@ -979,3 +981,145 @@ class TestShellRcWindows:
         monkeypatch.setenv("SHELL", "/bin/zsh")
         monkeypatch.setenv("HOME", "/home/test")
         assert get_shell_rc() == "/home/test/.zshrc"
+
+
+# -- _mask_api_key --
+
+
+class TestMaskApiKey:
+    def test_shows_first_6_and_last_4(self):
+        assert _mask_api_key("abcdefghijklmnop123456") == "abcdef***3456"
+
+    def test_short_value_all_masked(self):
+        assert _mask_api_key("abc") == "***"
+
+    def test_exact_6_chars(self):
+        assert _mask_api_key("abcdef") == "******"
+
+    def test_empty(self):
+        assert _mask_api_key("") == ""
+
+
+# -- ensure_credentials: existing config flow --
+
+
+class TestEnsureCredentialsExistingConfig:
+    """When all env vars exist, show them and ask whether to use or override."""
+
+    def test_use_existing_skips_shell_rc(self, monkeypatch):
+        """Accepting existing config does not prompt for shell rc."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        confirm_calls = []
+
+        def track_confirm(prompt, default=True):
+            confirm_calls.append(prompt)
+            return True
+
+        monkeypatch.setattr(utils, "confirm", track_confirm)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        cfg = ensure_credentials(yes=False)
+
+        assert cfg[ENV_SPACE_ID] == "my-space-12345"
+        assert cfg[ENV_API_KEY] == "abcdefghijklmnop123456"
+        assert cfg[ENV_REGION] == "cn-north-4"
+        assert any("Use existing" in c for c in confirm_calls)
+        assert not any("Save configuration" in c for c in confirm_calls)
+
+    def test_override_triggers_shell_rc(self, monkeypatch):
+        """Overriding a value triggers the shell rc prompt."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        confirm_results = iter([False, True])
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: next(confirm_results))
+
+        def fake_prompt_input(prompt, default=""):
+            if "API Key" in prompt:
+                return "new-api-key-12345678"
+            return default
+
+        monkeypatch.setattr(utils, "prompt_input", fake_prompt_input)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        cfg = ensure_credentials(yes=False)
+
+        assert cfg[ENV_API_KEY] == "new-api-key-12345678"
+        assert cfg[ENV_SPACE_ID] == "my-space-12345"
+        assert cfg[ENV_REGION] == "cn-north-4"
+
+    def test_override_same_values_skips_shell_rc(self, monkeypatch):
+        """Overriding but entering same values does not trigger shell rc."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        confirm_calls = []
+
+        def track_confirm(prompt, default=True):
+            confirm_calls.append(prompt)
+            return False
+
+        monkeypatch.setattr(utils, "confirm", track_confirm)
+        monkeypatch.setattr(utils, "prompt_input", lambda prompt, default="": default)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        cfg = ensure_credentials(yes=False)
+
+        assert cfg[ENV_SPACE_ID] == "my-space-12345"
+        assert cfg[ENV_API_KEY] == "abcdefghijklmnop123456"
+        assert cfg[ENV_REGION] == "cn-north-4"
+        # "Use existing?" was asked, "Save configuration?" was NOT.
+        assert any("Use existing" in c for c in confirm_calls)
+        assert not any("Save configuration" in c for c in confirm_calls)
+
+    def test_api_key_masked_in_display(self, monkeypatch):
+        """API key is shown as first 6 + *** + last 4, not the full key."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        printed = []
+        original_print = utils.console.print
+
+        def track_print(*args, **kwargs):
+            if args:
+                printed.append(str(args[0]))
+            original_print(*args, **kwargs)
+
+        monkeypatch.setattr(utils.console, "print", track_print)
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: True)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        ensure_credentials(yes=False)
+
+        api_lines = [p for p in printed if "API Key" in p]
+        assert any("abcdef***3456" in p for p in api_lines)
+        assert not any("abcdefghijklmnop123456" in p for p in api_lines)
+
+    def test_space_id_and_region_shown_full(self, monkeypatch):
+        """Space ID and Region are shown in full, not masked."""
+        monkeypatch.setenv(ENV_SPACE_ID, "my-space-12345")
+        monkeypatch.setenv(ENV_API_KEY, "abcdefghijklmnop123456")
+        monkeypatch.setenv(ENV_REGION, "cn-north-4")
+
+        printed = []
+        original_print = utils.console.print
+
+        def track_print(*args, **kwargs):
+            if args:
+                printed.append(str(args[0]))
+            original_print(*args, **kwargs)
+
+        monkeypatch.setattr(utils.console, "print", track_print)
+        monkeypatch.setattr(utils, "confirm", lambda *a, **k: True)
+        monkeypatch.setattr(utils, "write_shell_rc", lambda *a, **k: None)
+
+        ensure_credentials(yes=False)
+
+        assert any("my-space-12345" in p for p in printed)
+        assert any("cn-north-4" in p for p in printed)
