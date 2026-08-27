@@ -13,6 +13,7 @@ from agentarts.toolkit.plugins.memory.installer.utils import (
     ENV_API_KEY,
     ENV_REGION,
     ENV_SPACE_ID,
+    MCP_SERVER_COMMAND,
     add,
     expand,
     find,
@@ -738,7 +739,7 @@ class TestMcpConfigIntegration:
         settings = json.loads(open(settings_path).read())
         assert "mcpServers" in settings
         assert "agentarts_memory" in settings["mcpServers"]
-        assert settings["mcpServers"]["agentarts_memory"]["command"] == "python3"
+        assert settings["mcpServers"]["agentarts_memory"]["command"] == MCP_SERVER_COMMAND
         assert (
             settings["mcpServers"]["agentarts_memory"]["env"]["AGENTARTS_MEMORY_PLATFORM"]
             == "claude-code"
@@ -768,7 +769,7 @@ class TestMcpConfigIntegration:
         toml_path = os.path.join(result.config_dir, "config.toml")
         toml_content = open(toml_path).read()
         assert "[mcp_servers.agentarts_memory]" in toml_content
-        assert 'command = "python3"' in toml_content
+        assert f"command = {json.dumps(MCP_SERVER_COMMAND)}" in toml_content
         assert "AGENTARTS_MEMORY_PLATFORM" in toml_content
         assert (
             '"claude-code"' not in toml_content or '"codex"' not in toml_content or True

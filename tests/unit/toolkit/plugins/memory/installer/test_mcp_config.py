@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from agentarts.toolkit.plugins.memory.installer.utils import (
     ENV_API_KEY,
     ENV_REGION,
@@ -17,7 +19,6 @@ from agentarts.toolkit.plugins.memory.installer.utils import (
     strip_opencode_mcp,
     strip_toml_mcp_server,
 )
-
 
 # ── merge_mcp_servers / strip_mcp_servers ─────────────────────────
 
@@ -89,7 +90,7 @@ class TestMergeStripTomlMcpServer:
         assert 'command = "python3"' in result
 
     def test_strip_removes_section(self):
-        text = "[features]\nhooks = true\n\n[mcp_servers.srv]\ncommand = \"python3\"\nargs = []\n"
+        text = '[features]\nhooks = true\n\n[mcp_servers.srv]\ncommand = "python3"\nargs = []\n'
         result = strip_toml_mcp_server(text, "srv")
         assert "[mcp_servers.srv]" not in result
         assert "hooks = true" in result
@@ -97,8 +98,8 @@ class TestMergeStripTomlMcpServer:
     def test_strip_removes_env_subsection(self):
         text = (
             "[features]\nhooks = true\n"
-            "\n[mcp_servers.srv]\ncommand = \"python3\"\nargs = []\n"
-            "\n[mcp_servers.srv.env]\nKEY = \"val\"\n"
+            '\n[mcp_servers.srv]\ncommand = "python3"\nargs = []\n'
+            '\n[mcp_servers.srv.env]\nKEY = "val"\n'
         )
         result = strip_toml_mcp_server(text, "srv")
         assert "[mcp_servers.srv]" not in result
@@ -106,8 +107,7 @@ class TestMergeStripTomlMcpServer:
 
     def test_strip_preserves_other_sections(self):
         text = (
-            "[mcp_servers.other]\ncommand = \"node\"\n"
-            "\n[mcp_servers.srv]\ncommand = \"python3\"\n"
+            '[mcp_servers.other]\ncommand = "node"\n' '\n[mcp_servers.srv]\ncommand = "python3"\n'
         )
         result = strip_toml_mcp_server(text, "srv")
         assert "[mcp_servers.other]" in result
@@ -192,8 +192,36 @@ class TestConstants:
         assert MCP_SERVER_NAME == "agentarts_memory"
 
     def test_server_command(self):
-        assert MCP_SERVER_COMMAND == "python3"
+        assert MCP_SERVER_COMMAND == sys.executable
 
     def test_server_args(self):
         assert "-m" in MCP_SERVER_ARGS
         assert "agentarts.toolkit.plugins.memory.mcp.server" in MCP_SERVER_ARGS
+
+
+# -- TOML backslash escaping (Windows path safety) --
+
+
+class TestTomlBackslashEscaping:
+    """Verify that backslashes in string values are properly escaped
+    when writing TOML, so Windows paths (e.g. C:\\Users\\...) don't
+    produce invalid TOML.
+    """
+
+    def test_command_with_backslashes(self):
+        result = merge_toml_mcp_server("", "srv", r"C:\Users\test\python.exe", [], {})
+        # json.dumps doubles backslashes for TOML basic strings.
+        assert 'command = "C:\\\\Users\\\\test\\\\python.exe"' in result
+
+    def test_env_value_with_backslashes(self):
+        result = merge_toml_mcp_server("", "srv", "python", [], {"PATH": r"C:\foo\bar"})
+        assert 'PATH = "C:\\\\foo\\\\bar"' in result
+
+    def test_args_with_backslashes(self):
+        result = merge_toml_mcp_server("", "srv", "python", [r"C:\my module.py"], {})
+        assert r'"C:\\my module.py"' in result
+
+    def test_normal_values_unchanged(self):
+        result = merge_toml_mcp_server("", "srv", "python3", ["-m", "foo"], {"KEY": "val"})
+        assert 'command = "python3"' in result
+        assert 'KEY = "val"' in result

@@ -8,6 +8,7 @@ the original argparse-based ``agentarts-memory`` installer.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Annotated
 
 import typer
@@ -72,7 +73,12 @@ def _degraded_scan(target: str) -> None:
         if os.path.exists(path):
             any_found = True
             console.print(f"  Found leftover: {path}")
-            console.print(f"  Remove manually: [yellow]rm -rf {path}[/yellow]")
+            if sys.platform == "win32":
+                console.print(
+                    f"  Remove manually: [yellow]Remove-Item -Recurse -Force '{path}'[/yellow]"
+                )
+            else:
+                console.print(f"  Remove manually: [yellow]rm -rf {path}[/yellow]")
 
     if not any_found:
         console.print(f"  No leftover {target} files found.")

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -398,15 +399,16 @@ def merge_toml_mcp_server(
     text = strip_toml_mcp_server(text, name)
 
     lines: list[str] = []
-    # Format args as TOML array.
-    args_str = ", ".join(f'"{a}"' for a in args)
+    # Format args as TOML array — json.dumps properly escapes backslashes
+    # and quotes (TOML basic strings use the same escape sequences).
+    args_str = ", ".join(json.dumps(a) for a in args)
     lines.append(f"[mcp_servers.{name}]")
-    lines.append(f'command = "{command}"')
+    lines.append(f"command = {json.dumps(command)}")
     lines.append(f"args = [{args_str}]")
     if env:
         lines.append("")
         for k, v in env.items():
-            lines.append(f'{k} = "{v}"')
+            lines.append(f"{k} = {json.dumps(v)}")
     lines.append("")
 
     result = text.rstrip()
@@ -480,7 +482,11 @@ def strip_opencode_mcp(config: dict, name: str) -> dict:
 
 MCP_SERVER_NAME = "agentarts_memory"
 MCP_SERVER_MODULE = "agentarts.toolkit.plugins.memory.mcp.server"
-MCP_SERVER_COMMAND = "python3"
+# Use sys.executable so the MCP server runs under the exact Python
+# that has the agentarts package installed.  On Windows this may be a
+# path with backslashes; TOML values are escaped via json.dumps in
+# merge_toml_mcp_server, and JSON via json.dumps in write_json_atomic.
+MCP_SERVER_COMMAND = sys.executable
 MCP_SERVER_ARGS = ["-m", MCP_SERVER_MODULE]
 
 
@@ -1092,10 +1098,16 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
 
     # Optional: write to shell rc.
     if not yes:
-        if confirm("Save configuration to shell rc for persistence?", default=True):
+        if sys.platform == "win32":
+            rc_label = "user environment"
+            apply_hint = "Restart terminal to apply."
+        else:
+            rc_label = "shell rc"
+            apply_hint = "Run 'source' or restart terminal to apply."
+        if confirm(f"Save configuration to {rc_label} for persistence?", default=True):
             write_shell_rc(config)
-            console.print("  [green]\u221a[/green] Configuration saved to shell rc")
-            console.print("  Run 'source' or restart terminal to apply.")
+            console.print(f"  [green]\u221a[/green] Configuration saved to {rc_label}")
+            console.print(f"  {apply_hint}")
     elif all_ok:
         # In --yes mode, persist if we filled anything interactively (no-op if
         # everything came from env).
@@ -1109,6 +1121,10 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
 
 def get_shell_rc() -> str:
     """Detect the current shell's rc file path."""
+    if sys.platform == "win32":
+        # On Windows there is no traditional shell rc; write_shell_rc
+        # uses setx for persistence instead.
+        return ""
     shell = os.getenv("SHELL", "")
     home = os.path.expanduser("~")
     if "zsh" in shell:
@@ -1121,6 +1137,15 @@ def get_shell_rc() -> str:
 
 def write_shell_rc(entries: dict[str, str]) -> None:
     """Write export lines to shell rc, deduplicating by key."""
+    if sys.platform == "win32":
+        # On Windows, persist via setx (user environment variables).
+        for key, value in entries.items():
+            subprocess.run(
+                ["setx", key, value],
+                check=False,
+                capture_output=True,
+            )
+        return
     rc_path = expand(get_shell_rc())
     existing: list[str] = []
     other_lines: list[str] = []

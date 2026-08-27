@@ -3,6 +3,7 @@
 import json
 import os
 
+import sys
 import pytest
 from agentarts.toolkit.plugins.memory.installer import utils
 from agentarts.toolkit.plugins.memory.installer.utils import (
@@ -948,3 +949,33 @@ class TestCommandContainsScriptsDir:
         assert not utils._command_contains_scripts_dir(
             entry, "/home/u/.codex/agentarts-memory/scripts"
         )
+
+
+# -- Shell rc: Windows behavior --
+
+
+class TestShellRcWindows:
+    """On Windows, get_shell_rc returns empty and write_shell_rc uses setx."""
+
+    def test_get_shell_rc_returns_empty_on_windows(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert get_shell_rc() == ""
+
+    def test_write_shell_rc_uses_setx_on_windows(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "win32")
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        write_shell_rc({ENV_API_KEY: "secret123", ENV_SPACE_ID: "space-12345"})
+        assert len(calls) == 2
+        assert calls[0] == ["setx", ENV_API_KEY, "secret123"]
+        assert calls[1] == ["setx", ENV_SPACE_ID, "space-12345"]
+
+    def test_get_shell_rc_unix_unchanged(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setenv("SHELL", "/bin/zsh")
+        monkeypatch.setenv("HOME", "/home/test")
+        assert get_shell_rc() == "/home/test/.zshrc"
