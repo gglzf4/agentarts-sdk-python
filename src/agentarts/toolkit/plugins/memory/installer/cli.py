@@ -72,13 +72,15 @@ def _degraded_scan(target: str) -> None:
     for path in found:
         if os.path.exists(path):
             any_found = True
-            console.print(f"  Found leftover: {path}")
+            console.print(f"  Found leftover: {os.path.normpath(path)}")
             if sys.platform == "win32":
                 console.print(
-                    f"  Remove manually: [yellow]Remove-Item -Recurse -Force '{path}'[/yellow]"
+                    f"  Remove manually: [yellow]Remove-Item -Recurse -Force '{os.path.normpath(path)}'[/yellow]"
                 )
             else:
-                console.print(f"  Remove manually: [yellow]rm -rf {path}[/yellow]")
+                console.print(
+                    f"  Remove manually: [yellow]rm -rf {os.path.normpath(path)}[/yellow]"
+                )
 
     if not any_found:
         console.print(f"  No leftover {target} files found.")
@@ -172,7 +174,7 @@ def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
             return 1
         console.print("\nInstalled platforms:")
         options = [
-            f"{i['platform']} ({i.get('scope', '?')}) \u2014 {i.get('config_dir', '?')}"
+            f"{i['platform']} ({i.get('scope', '?')}) \u2014 {os.path.normpath(i.get('config_dir', '?'))}"
             for i in all_installs
         ]
         idx = select_one("Select installation to remove", options, 0)
@@ -185,7 +187,7 @@ def _do_uninstall(target: str | None, global_scope: bool, yes: bool) -> int:
         return 2
 
     if not yes and not confirm(
-        f"Remove {platform.display} from {entry.get('config_dir', '?')}?",
+        f"Remove {platform.display} from {os.path.normpath(entry.get('config_dir', '?'))}?",
         default=True,
     ):
         console.print("[yellow]Cancelled.[/yellow]")
