@@ -4,7 +4,7 @@ Hermes Memory Provider 插件，将华为云 AgentArts Memory 作为 Hermes Agen
 
 ## 功能概述
 
-- **跨会话记忆持久化**：每轮对话后自动写入 AgentArts Memory（非阻塞）
+- **跨会话记忆持久化**：每轮对话后自动写入 AgentArts Memory
 - **上下文注入**：LLM 调用前自动注入相关记忆（用户画像 / 情景 / 语义 + 历史摘要）
 - **压缩保护**：上下文压缩前重新注入相关记忆，避免关键信息被裁掉
 - **MEMORY.md 镜像**：将 Hermes 内置 `MEMORY.md` 的写入同步到 AgentArts
@@ -70,7 +70,7 @@ cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/ag
 ## 架构说明
 
 - **Client 模式**：使用 `MemoryClient`（Client 模式），不依赖 Session 模式
-- **非阻塞 sync**：`sync_turn` 在守护线程中执行 `add_messages`，不阻塞 Hermes 主循环
+- **同步 sync**：`sync_turn` 同步执行 `add_messages`，方法很轻量
 - **Profile 隔离**：所有路径使用 `initialize()` 中的 `hermes_home` kwarg
 - **线程安全**：`_lock` 保护 `_client` 的并发读写
 
@@ -80,7 +80,7 @@ cp -r src/agentarts/toolkit/plugins/memory/ai_agent/hermes  ~/.hermes/plugins/ag
 |---|---|---|
 | `system_prompt_block` | 系统 prompt 组装时 | 注入记忆能力说明 |
 | `prefetch` | 每次 LLM 调用前 | 搜索并注入相关记忆 |
-| `sync_turn` | 每轮对话后 | 非阻塞写入对话内容 |
+| `sync_turn` | 每轮对话后 | 写入对话内容 |
 | `on_pre_compress` | 上下文压缩前 | 重新注入相关记忆 |
 | `on_memory_write` | 内置 memory 写入时 | 镜像 MEMORY.md 到 AgentArts |
 | `on_session_end` | 对话结束时 | no-op（逐轮已落库） |

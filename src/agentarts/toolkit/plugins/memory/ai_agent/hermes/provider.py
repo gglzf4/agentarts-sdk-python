@@ -20,8 +20,8 @@ ENV_SPACE_ID = "AGENTARTS_MEMORY_SPACE_ID"
 # ── Default values ──
 DEFAULT_REGION = "cn-southwest-2"
 DEFAULT_TOP_K = 5
+DEFAULT_MIN_SCORE = 0.7
 DEFAULT_LIST_LIMIT = 10
-SYNC_JOIN_TIMEOUT = 5.0
 
 # ── Provider identity ──
 PROVIDER_NAME = "agentarts"
@@ -31,7 +31,7 @@ PROVIDER_ASSISTANT_ID = "hermes-agent"
 SYSTEM_PROMPT_BLOCK = (
     "## AgentArts Memory\n"
     "This session provides cross-session cloud memory via Huawei Cloud AgentArts Memory.\n"
-    "- Conversation content is automatically written to memory after each turn (non-blocking)\n"
+    "- Conversation content is automatically written to memory after each turn\n"
     "- Relevant memories are injected before each LLM call"
     " (user profile / episodic / semantic + history summary)\n"
     "- Use the ltm_search tool to actively retrieve cloud memories\n"
@@ -174,9 +174,9 @@ class AgentArtsMemoryProvider:
         self._actor_id: str = ""
         self._assistant_id: str = PROVIDER_ASSISTANT_ID
         self._hermes_home: str = ""
-        self._sync_thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._sdk: Any = None
+        self._log_handler: logging.FileHandler | None = None
 
     # ── Core lifecycle ──
 
@@ -188,12 +188,33 @@ class AgentArtsMemoryProvider:
         """Check whether required env vars are set. Must NOT perform network requests."""
         return all(bool(os.getenv(var)) for var in (ENV_API_KEY, ENV_SPACE_ID))
 
+    def _setup_logging(self) -> None:
+        """Configure file logging to <hermes_home>/agentarts.logs."""
+        if not self._hermes_home or self._log_handler is not None:
+            return
+        log_path = Path(self._hermes_home) / "logs" / "agentarts.logs"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._log_handler = logging.FileHandler(log_path, encoding="utf-8")
+            self._log_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s [%(levelname)s] %(name)s.%(funcName)s: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
+            )
+            self._log_handler.setLevel(logging.INFO)
+            logger.addHandler(self._log_handler)
+            logger.setLevel(logging.INFO)
+        except Exception as e:
+            logger.warning("Failed to setup file logging: %s", e)
+
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         """Called once when the agent starts.
 
         kwargs always includes ``hermes_home (str)``: the active HERMES_HOME path.
         """
         self._hermes_home = kwargs.get("hermes_home", "")
+        self._setup_logging()
         self._session_id = session_id
         self._actor_id = kwargs.get("user_id", "hermes-user")
         self._space_id = os.getenv(ENV_SPACE_ID, "")
@@ -262,10 +283,21 @@ class AgentArtsMemoryProvider:
 
         try:
             with self._lock:
-                results = self._client.search_memories(
-                    space_id=self._space_id,
-                    filters=sdk.MemorySearchFilter(query=query, top_k=top_k),
+                filters = sdk.MemorySearchFilter(
+                    query=query,
+                    top_k=top_k,
+                    actor_id=self._actor_id,
+                    min_score=DEFAULT_MIN_SCORE,
                 )
+                logger.info(
+                    "_space_id=%s, session_id=%s, top_k=%s, _actor_id=%s, min_score=%s",
+                    self._space_id,
+                    self._session_id,
+                    top_k,
+                    self._actor_id,
+                    DEFAULT_MIN_SCORE,
+                )
+                results = self._client.search_memories(space_id=self._space_id,filters=filters)
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
@@ -280,13 +312,12 @@ class AgentArtsMemoryProvider:
                 else:
                     content = str(record)
                     strategy_type = None
-                items.append(
-                    {
-                        "content": content,
-                        "score": item.get("score"),
-                        "strategy_type": strategy_type,
-                    }
-                )
+                res_item = {
+                    "content": content,
+                    "score": item.get("score"),
+                    "strategy_type": strategy_type,
+                }
+                items.append(res_item)
             else:
                 items.append({"content": str(item), "score": None, "strategy_type": None})
 
@@ -304,9 +335,18 @@ class AgentArtsMemoryProvider:
 
         try:
             with self._lock:
+                filters = self._sdk.MemorySearchFilter(actor_id=self._actor_id)
+                logger.info(
+                    "_space_id=%s,session_id=%s,limit=%s, _actor_id=%s",
+                    self._space_id,
+                    self._session_id,
+                    limit,
+                    self._actor_id,
+                )
                 memories = self._client.list_memories(
                     space_id=self._space_id,
                     limit=limit,
+                    filters=filters
                 )
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -367,46 +407,33 @@ class AgentArtsMemoryProvider:
         return "\n".join(lines) + "\n"
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
-        """Persist each conversation turn to AgentArts Memory (non-blocking)."""
+        """Persist each conversation turn to AgentArts Memory."""
         if not self._client:
             return
-
-        space_id = self._space_id
-        session_id = self._session_id
-        actor_id = self._actor_id
-        assistant_id = self._assistant_id
-
-        def _sync() -> None:
-            try:
-                sdk = self._sdk
-                messages = [
-                    sdk.TextMessage(
-                        role="user",
-                        content=user_content,
-                        actor_id=actor_id,
-                        assistant_id=assistant_id,
-                    ),
-                    sdk.TextMessage(
-                        role="assistant",
-                        content=assistant_content,
-                        actor_id=actor_id,
-                        assistant_id=assistant_id,
-                    ),
-                ]
-                with self._lock:
-                    self._client.add_messages(
-                        space_id=space_id,
-                        session_id=session_id,
-                        messages=messages,
-                    )
-            except Exception as e:
-                logger.warning("sync_turn failed: %s", e)
-
-        if self._sync_thread and self._sync_thread.is_alive():
-            self._sync_thread.join(timeout=SYNC_JOIN_TIMEOUT)
-
-        self._sync_thread = threading.Thread(target=_sync, daemon=True)
-        self._sync_thread.start()
+        try:
+            sdk = self._sdk
+            messages = [
+                sdk.TextMessage(
+                    role="user",
+                    content=user_content,
+                    actor_id=self._actor_id,
+                    assistant_id=self._assistant_id,
+                ),
+                sdk.TextMessage(
+                    role="assistant",
+                    content=assistant_content,
+                    actor_id=self._actor_id,
+                    assistant_id=self._assistant_id,
+                ),
+            ]
+            with self._lock:
+                self._client.add_messages(
+                    space_id=self._space_id,
+                    session_id=self._session_id,
+                    messages=messages,
+                )
+        except Exception as e:
+            logger.warning("sync_turn failed: %s", e)
 
     def on_pre_compress(self, messages: list[Any]) -> str:
         """Re-inject relevant memories before context compression."""
@@ -452,8 +479,10 @@ class AgentArtsMemoryProvider:
 
     def shutdown(self) -> None:
         """Clean up connections on process exit."""
-        if self._sync_thread and self._sync_thread.is_alive():
-            self._sync_thread.join(timeout=SYNC_JOIN_TIMEOUT)
+        if self._log_handler is not None:
+            logger.removeHandler(self._log_handler)
+            self._log_handler.close()
+            self._log_handler = None
         if self._client:
             try:
                 close = getattr(self._client, "close", None) or getattr(
