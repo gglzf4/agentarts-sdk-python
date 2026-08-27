@@ -16,6 +16,15 @@ class InstallResult:
     files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Normalize all path fields to use OS-native separators."""
+        if self.config_dir:
+            self.config_dir = os.path.normpath(self.config_dir)
+        if self.scripts_dir:
+            self.scripts_dir = os.path.normpath(self.scripts_dir)
+        self.files = [os.path.normpath(f) if f else f for f in self.files]
+        self.config_files = [os.path.normpath(f) if f else f for f in self.config_files]
+
 
 class Platform(ABC):
     """Abstract platform adapter for install/uninstall operations."""

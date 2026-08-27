@@ -63,7 +63,9 @@ class OpenCodePlatform(Platform):
         # Phase 1: Deploy TS plugin.
         oc_files = opencode_files()
         for rel_target, src_path in oc_files.items():
-            dst = os.path.join(config_dir, rel_target)
+            # Split rel_target on "/" so os.path.join uses OS-native
+            # separators instead of embedding forward slashes.
+            dst = os.path.join(config_dir, *rel_target.split("/"))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src_path, dst)
             deployed.append(dst)

@@ -49,7 +49,10 @@ def set_yes(value: bool) -> None:
 
 def expand(path: str) -> str:
     """Expand ``~`` and environment variables in *path*."""
-    return os.path.expandvars(os.path.expanduser(path))
+    # normpath ensures OS-native separators (e.g. on Windows,
+    # expanduser("~/.codex") produces "C:\Users\.../.codex" with mixed
+    # separators; normpath normalizes to "C:\Users\...\.codex").
+    return os.path.normpath(os.path.expandvars(os.path.expanduser(path)))
 
 
 # ── JSON5 tolerance ──────────────────────────────────────────────────
@@ -592,7 +595,7 @@ def remove_if_empty(path: str) -> None:
 
 
 def status_ok(label: str, path: str) -> None:
-    console.print(f"  [green]\u221a[/green] {label} \u2192 {path}")
+    console.print(f"  [green]\u221a[/green] {label} \u2192 {os.path.normpath(path)}")
 
 
 def status_err(label: str, err: str) -> None:
@@ -600,7 +603,7 @@ def status_err(label: str, err: str) -> None:
 
 
 def status_updated(label: str, path: str) -> None:
-    console.print(f"  [yellow]\u21bb[/yellow] {label} (updated) \u2192 {path}")
+    console.print(f"  [yellow]\u21bb[/yellow] {label} (updated) \u2192 {os.path.normpath(path)}")
 
 
 # ── Interactive prompts ──────────────────────────────────────────────
@@ -1119,7 +1122,7 @@ def ensure_credentials(yes: bool) -> dict[str, str]:
     if not yes and all_env_present:
         # All three vars exist in environment -- show and confirm.
         console.print("\nExisting configuration found:")
-        for var in (ENV_API_KEY, ENV_SPACE_ID, ENV_REGION):
+        for var in (ENV_SPACE_ID, ENV_API_KEY,  ENV_REGION):
             value = original_env[var]
             desc = VAR_DESCRIPTIONS.get(var, var)
             if var == ENV_API_KEY:
