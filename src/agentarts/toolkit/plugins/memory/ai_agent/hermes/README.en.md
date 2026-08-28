@@ -4,7 +4,7 @@ A Hermes Memory Provider plugin that uses Huawei Cloud AgentArts Memory as the c
 
 ## Overview
 
-- **Cross-session memory persistence**: Automatically writes conversation content to AgentArts Memory after each turn (non-blocking)
+- **Cross-session memory persistence**: Automatically writes conversation content to AgentArts Memory after each turn
 - **Context injection**: Automatically injects relevant memories before each LLM call (user profile / episodic / semantic + history summary)
 - **Compression protection**: Re-injects relevant memories before context compression to prevent key information from being dropped
 - **MEMORY.md mirroring**: Syncs Hermes built-in `MEMORY.md` writes to AgentArts
@@ -67,7 +67,7 @@ After the plugin is registered, the following CLI subcommands are available (onl
 ## Architecture
 
 - **Client mode**: Uses `MemoryClient` (Client mode), not Session mode
-- **Non-blocking sync**: `sync_turn` executes `add_messages` in a daemon thread, not blocking the Hermes main loop
+- **Synchronous sync**: `sync_turn` executes `add_messages` synchronously; the method is lightweight
 - **Profile isolation**: All paths use the `hermes_home` kwarg from `initialize()`
 - **Thread safety**: `_lock` protects concurrent read/write to `_client`
 
@@ -77,7 +77,7 @@ After the plugin is registered, the following CLI subcommands are available (onl
 |---|---|---|
 | `system_prompt_block` | System prompt assembly | Inject memory capability description |
 | `prefetch` | Before each LLM call | Search and inject relevant memories |
-| `sync_turn` | After each conversation turn | Non-blocking write of conversation content |
+| `sync_turn` | After each conversation turn | Write conversation content |
 | `on_pre_compress` | Before context compression | Re-inject relevant memories |
 | `on_memory_write` | On built-in memory write | Mirror MEMORY.md to AgentArts |
 | `on_session_end` | On session end | No-op (turns already persisted per-turn) |
